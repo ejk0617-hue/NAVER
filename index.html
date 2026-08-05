@@ -185,15 +185,16 @@
   .ss-goal-target-line b{color:#8B5CF6;font-size:14px;margin:0 4px;white-space:nowrap;}
   .ss-goal-target-sub{font-size:11px;}
   .ss-gauge-detail{font-size:11px;color:var(--text-secondary);white-space:nowrap;overflow:visible;}
-  .ss-input-cal-grid-narrow{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;}
-  .ss-input-cal-grid-narrow .ss-input-cal-card{padding:7px;}
-  .ss-input-cal-grid-narrow .ss-input-cal-store{font-size:11px;}
-  .ss-input-cal-grid-narrow .ss-input-cal-total{font-size:10px;}
-  .ss-input-cal-grid-narrow .ss-input-cal-input{font-size:8px;padding:1px;}
-  .ss-input-cal-grid-narrow .ss-input-cal-daynum{font-size:7.5px;}
-  .ss-input-cal-grid-narrow .ss-input-cal-table th{font-size:7.5px;padding:1px 0;}
-  .ss-input-cal-grid-narrow .ss-input-cal-target label{font-size:9.5px;}
-  .ss-input-cal-grid-narrow .ss-input-cal-target input{width:80px;padding:3px 5px !important;font-size:10.5px !important;}
+  .ss-input-cal-grid-narrow{grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-card{padding:10px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-store{font-size:13px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-total{font-size:12px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-input{font-size:12.5px;padding:5px 2px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-daynum{font-size:11px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-table th{font-size:10.5px;padding:4px 0;}
+  .ss-input-cal-grid-narrow .ss-input-cal-cell{padding:2px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-target label{font-size:11px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-target input{width:90px;padding:5px 6px !important;font-size:12px !important;}
 
   .ss-store-notes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;}
   .ss-store-notes-card{border:1px solid var(--border);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px;}
@@ -209,6 +210,19 @@
   .ss-event-sales-table td{padding:3px;}
   .ss-event-sales-table td.num{text-align:right;}
   .ss-event-sales-table input{font-size:11.5px !important;padding:4px 6px !important;}
+
+  .ss-manual-event-form{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
+  .ss-manual-event-add{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:6px;}
+  @media (max-width:700px){ .ss-manual-event-add{grid-template-columns:1fr 1fr; } }
+  .ss-manual-event-add select, .ss-manual-event-add input{font-size:12px !important;padding:6px 8px !important;}
+  .ss-manual-event-add .btn{padding:6px 12px;font-size:12px;white-space:nowrap;}
+  .ss-manual-event-list{display:flex;flex-direction:column;gap:2px;margin-top:10px;max-height:140px;overflow-y:auto;}
+  .ss-manual-event-row{display:flex;align-items:center;gap:10px;padding:5px 4px;border-radius:6px;font-size:12px;}
+  .ss-manual-event-row:hover{background:var(--bg);}
+  .ss-manual-event-row .mono{color:var(--text-secondary);flex-shrink:0;}
+  .ss-manual-event-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ss-manual-event-row .btn-del{opacity:0;flex-shrink:0;}
+  .ss-manual-event-row:hover .btn-del{opacity:1;}
   .page-header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:24px;}
   .page-header h1{font-size:22px;font-weight:800;margin:0 0 4px 0;}
   .page-header .sub{font-size:13px;color:var(--text-secondary);}
@@ -1252,14 +1266,43 @@ window.addEventListener('error', function(e){
 /* ---- 스마트스토어: 매출 현황 (스토어별 주간/월간 매출 수기 입력) ---- */
 function ensureSmartstore(){
   if(!state.smartstore || typeof state.smartstore!=='object'){
-    state.smartstore = { daily: [], monthlyTargets: {}, checklistByStore: {}, notesByStore: {}, eventSales: [] };
+    state.smartstore = { daily: [], monthlyTargets: {}, checklistByStore: {}, notesByStore: {}, eventSales: [], manualEvents: [] };
   }
   if(!Array.isArray(state.smartstore.daily)) state.smartstore.daily = [];
   if(!state.smartstore.monthlyTargets || typeof state.smartstore.monthlyTargets!=='object') state.smartstore.monthlyTargets = {};
   if(!state.smartstore.checklistByStore || typeof state.smartstore.checklistByStore!=='object') state.smartstore.checklistByStore = {};
   if(!state.smartstore.notesByStore || typeof state.smartstore.notesByStore!=='object') state.smartstore.notesByStore = {};
   if(!Array.isArray(state.smartstore.eventSales)) state.smartstore.eventSales = [];
+  if(!Array.isArray(state.smartstore.manualEvents)) state.smartstore.manualEvents = [];
   return state.smartstore;
+}
+function addManualEvent(){
+  const ss = ensureSmartstore();
+  ss.manualEvents.unshift({id:uid(), store:'', date:todayStr(), name:''});
+  saveState(); render();
+}
+function updateManualEventField(id, field, value){
+  const ss = ensureSmartstore();
+  const row = ss.manualEvents.find(x=>x.id===id);
+  if(!row) return;
+  row[field] = value;
+  saveState(); render();
+}
+function deleteManualEvent(id){
+  const ss = ensureSmartstore();
+  ss.manualEvents = ss.manualEvents.filter(x=>x.id!==id);
+  saveState(); render();
+}
+function submitManualEvent(){
+  const storeEl = document.getElementById('ssManualEventStore');
+  const dateEl = document.getElementById('ssManualEventDate');
+  const nameEl = document.getElementById('ssManualEventName');
+  const name = nameEl.value.trim();
+  if(!name){ alert('행사명을 입력해주세요.'); return; }
+  if(!dateEl.value){ alert('날짜를 선택해주세요.'); return; }
+  const ss = ensureSmartstore();
+  ss.manualEvents.unshift({id:uid(), store:storeEl.value, date:dateEl.value, name});
+  saveState(); render();
 }
 function currentYearMonthKey(){
   const d = new Date();
@@ -1471,16 +1514,21 @@ function renderSmartstoreDashboard(){
   const calView = ensureSmartstoreCalView();
   const cy = calView.y, cm = calView.m;
   function calEventsOnDay(dateStr){
-    return promo.selections.filter(s=>{
+    const fromSelections = promo.selections.filter(s=>{
       if(!s.brand || !visibleStores.includes(s.brand)) return false;
       if(!s.startDate || !s.endDate) return false;
       return s.startDate<=dateStr && s.endDate>=dateStr;
-    });
+    }).map(s=>({brand:s.brand, name:s.promoName||'(제목 없음)', manual:false}));
+    const fromManual = ss.manualEvents.filter(e=>{
+      if(e.date!==dateStr) return false;
+      if(e.store && !visibleStores.includes(e.store)) return false;
+      return true;
+    }).map(e=>({brand:e.store||'', name:e.name||'(제목 없음)', manual:true}));
+    return [...fromSelections, ...fromManual];
   }
   const calChip = ev=>{
-    const color = promoBrandColor(ev.brand||'');
-    const label = ev.promoName || '(제목 없음)';
-    return `<div class="promo-cal-chip" style="background:${color}22;color:${color}" title="${label}">${label}</div>`;
+    const color = ev.brand ? promoBrandColor(ev.brand) : '#8B5CF6';
+    return `<div class="promo-cal-chip" style="background:${color}22;color:${color}" title="${ev.name}">${ev.manual?'✏️ ':''}${ev.name}</div>`;
   };
 
   const inputView = ensureSmartstoreInputCalView();
@@ -1591,6 +1639,28 @@ function renderSmartstoreDashboard(){
           </div>
         </div>
         ${visibleStores.length===0 ? `<div class="empty" style="padding:16px 0">브랜드 필터에서 스토어를 선택해주세요.</div>` : `<div class="ss-mini-cal">${buildPromoCalGrid(cy, cm, calEventsOnDay, calChip)}</div>`}
+        <div class="ss-manual-event-form">
+          <div class="ss-manual-event-add">
+            <select id="ssManualEventStore" class="row-input">
+              <option value="">스토어 선택</option>
+              ${allStores.map(b=>`<option value="${b}">${b}</option>`).join('')}
+            </select>
+            <input id="ssManualEventDate" class="row-input" type="date" value="${todayStr()}">
+            <input id="ssManualEventName" class="row-input" style="text-align:left" type="text" placeholder="행사명">
+            <button class="btn" onclick="submitManualEvent()">+ 행사 추가</button>
+          </div>
+          ${ss.manualEvents.filter(e=>!e.store || visibleStores.includes(e.store)).length>0 ? `
+          <div class="ss-manual-event-list">
+            ${ss.manualEvents.filter(e=>!e.store || visibleStores.includes(e.store)).map(e=>`
+              <div class="ss-manual-event-row">
+                <span class="mono">${e.date||'-'}</span>
+                <span>${e.store||'(스토어 미지정)'}</span>
+                <span class="ss-manual-event-name">${e.name||'(제목 없음)'}</span>
+                <button class="btn-del" onclick="deleteManualEvent('${e.id}')" title="삭제">✕</button>
+              </div>
+            `).join('')}
+          </div>` : ''}
+        </div>
       </div>
 
       <div class="card ss-compact-card">
