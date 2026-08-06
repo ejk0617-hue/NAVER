@@ -231,6 +231,8 @@
   .wm-metric-col{font-size:12.5px;font-weight:700;white-space:nowrap;text-align:left !important;color:var(--text-primary);}
   .wm-unit{font-weight:400;color:var(--text-secondary);font-size:11px;}
   .wm-input{width:100px;text-align:right;}
+  .wm-input-readonly{background:#F5F1FC;border:1px solid #E4D9F7;border-radius:6px;padding:7px 9px;color:#6B3FB8;font-weight:700;}
+  .wm-auto-badge{display:inline-block;background:#8B5CF622;color:#8B5CF6;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:8px;margin-left:2px;}
   .wm-delta{font-size:10px;font-weight:800;text-align:right;margin-top:2px;padding-right:2px;}
   .wm-delta.up{color:#D64545;}
   .wm-delta.down{color:#2F6FED;}
@@ -514,8 +516,10 @@ const NAV_GROUPS = [
     {sectionKey:'fulfillment_inbound_calc', label:'입고량 계산', color:'#0EA5A5'},
     {sectionKey:'fulfillment_items',        label:'품목 데이터', color:'#0369A1'},
   ]},
-  {key:'smartstore', type:'single', sectionKey:'smartstore_sales', label:'스마트스토어', color:'#8B5CF6'},
-  {key:'weeklymeeting', type:'single', sectionKey:'weekly_meeting', label:'주간미팅', color:'#0EA5A5'},
+  {key:'smartstore', type:'group', label:'스마트스토어', color:'#8B5CF6', children:[
+    {sectionKey:'smartstore_sales', label:'매출 대시보드', color:'#8B5CF6'},
+    {sectionKey:'weekly_meeting',   label:'주간미팅',     color:'#0EA5A5'},
+  ]},
 ];
 
 /* 예전엔 이 5개(쇼검 계정, GFA/스스광고/브검/비즈월렛 브랜드)가 코드에 고정된 값이었는데,
@@ -1726,6 +1730,14 @@ const WEEKLY_MEETING_METRICS = [
 function findWeeklyEntry(store, weekStart){
   return ensureWeeklyMeeting().entries.find(e=>e.store===store && e.weekStart===weekStart);
 }
+/* 스마트스토어 대시보드에 입력해둔 일간 매출(state.smartstore.daily)에서, 이 주간(목~수) 구간에
+   해당하는 날짜들의 매출을 합산해서 매출액을 자동으로 끌어온다. 따로 입력할 필요가 없다. */
+function weeklyRevenueFromDaily(store, weekStart, weekEnd){
+  const daily = ensureSmartstore().daily;
+  return daily
+    .filter(r=> r.store===store && r.date>=weekStart && r.date<=weekEnd)
+    .reduce((s,r)=> s + (Number(r.amount)||0), 0);
+}
 function updateWeeklyMeetingField(store, weekStart, weekEnd, field, value){
   const wm = ensureWeeklyMeeting();
   let entry = wm.entries.find(e=>e.store===store && e.weekStart===weekStart);
@@ -1745,6 +1757,10 @@ function buildWeeklyTrendChart(weeks, visibleStores, metricKey){
   const innerH = height - padT - padB;
 
   const seriesData = visibleStores.map(store => weeks.map(w=>{
+    if(metricKey==='revenue'){
+      const v = weeklyRevenueFromDaily(store, w.start, w.end);
+      return v>0 ? v : null;
+    }
     const entry = findWeeklyEntry(store, w.start);
     const raw = entry ? entry[metricKey] : '';
     return (raw==='' || raw===undefined || raw===null) ? null : Number(raw);
@@ -1897,15 +1913,19 @@ function renderWeeklyMeeting(){
             <tbody>
               ${WEEKLY_MEETING_METRICS.map(metric=>`
                 <tr>
-                  <td class="wm-metric-col">${metric.label} <span class="wm-unit">(${metric.unit})</span></td>
+                  <td class="wm-metric-col">${metric.label} <span class="wm-unit">(${metric.unit})</span>${metric.key==='revenue'?' <span class="wm-auto-badge">자동</span>':''}</td>
                   ${weeks.map((w,i)=>{
-                    const entry = findWeeklyEntry(store, w.start);
-                    const val = entry ? entry[metric.key] : '';
-                    const prevEntry = i>0 ? findWeeklyEntry(store, weeks[i-1].start) : null;
-                    const prevVal = prevEntry ? prevEntry[metric.key] : '';
+                    const isRevenue = metric.key==='revenue';
+                    const val = isRevenue ? weeklyRevenueFromDaily(store, w.start, w.end) : (findWeeklyEntry(store, w.start) ? findWeeklyEntry(store, w.start)[metric.key] : '');
+                    const prevVal = isRevenue
+                      ? (i>0 ? weeklyRevenueFromDaily(store, weeks[i-1].start, weeks[i-1].end) : '')
+                      : (i>0 ? (findWeeklyEntry(store, weeks[i-1].start) ? findWeeklyEntry(store, weeks[i-1].start)[metric.key] : '') : '');
                     const pct = pctChangeOf(val, prevVal);
+                    const cellInner = isRevenue
+                      ? `<div class="wm-input wm-input-readonly mono">${val ? Number(val).toLocaleString('ko-KR') : '-'}</div>`
+                      : `<input class="row-input mono wm-input" type="text" inputmode="decimal" placeholder="-" value="${val?Number(val).toLocaleString('ko-KR'):''}" onchange="updateWeeklyMeetingField('${store.replace(/'/g,"\\'")}','${w.start}','${w.end}','${metric.key}',this.value)">`;
                     return `<td>
-                      <input class="row-input mono wm-input" type="text" inputmode="decimal" placeholder="-" value="${val?Number(val).toLocaleString('ko-KR'):''}" onchange="updateWeeklyMeetingField('${store.replace(/'/g,"\\'")}','${w.start}','${w.end}','${metric.key}',this.value)">
+                      ${cellInner}
                       ${pct===null ? '' : `<div class="wm-delta ${pct>=0?'up':'down'}">${pct>=0?'▲':'▼'} ${Math.abs(pct)}%</div>`}
                     </td>`;
                   }).join('')}
