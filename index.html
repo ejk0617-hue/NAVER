@@ -243,8 +243,8 @@
   .wm-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);font-weight:600;}
   .wm-chart-legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
 
-  .wm-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;}
-  .wm-mini-card{border:1px solid var(--border);border-radius:9px;padding:7px 8px 5px;}
+  .wm-mini-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,240px));gap:10px;justify-content:flex-start;}
+  .wm-mini-card{border:1px solid var(--border);border-radius:9px;padding:7px 8px 5px;max-width:240px;width:100%;}
   .wm-mini-title{font-size:10px;font-weight:800;color:var(--text-primary);margin-bottom:1px;}
   .wm-mini-title .wm-unit{font-size:9px;}
   .wm-mini-store-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding-top:2px;}
@@ -1834,22 +1834,22 @@ function buildWeeklyMetricLineChart(weeks, visibleStores, metricKey){
   let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-mini-svg">`;
   ticks.forEach(t=>{
     const ty = yOf(t);
-    svg += `<line x1="${padL}" y1="${ty.toFixed(1)}" x2="${padL+innerW}" y2="${ty.toFixed(1)}" stroke="#F0F1F4" stroke-width="0.6"/>`;
-    svg += `<text x="${padL-4}" y="${(ty+2.5).toFixed(1)}" font-size="5.5" fill="#9AA1AC" text-anchor="end">${formatMiniAxisNumber(t, metricMeta.unit)}</text>`;
+    svg += `<line x1="${padL}" y1="${ty.toFixed(1)}" x2="${padL+innerW}" y2="${ty.toFixed(1)}" stroke="#F0F1F4" stroke-width="0.75"/>`;
+    svg += `<text x="${padL-4}" y="${(ty+2.5).toFixed(1)}" font-size="8" fill="#9AA1AC" text-anchor="end">${formatMiniAxisNumber(t, metricMeta.unit)}</text>`;
   });
   weeks.forEach((w,i)=>{
-    svg += `<text x="${xOf(i).toFixed(1)}" y="${height-4}" font-size="5.5" fill="#9AA1AC" text-anchor="middle">${w.label}</text>`;
+    svg += `<text x="${xOf(i).toFixed(1)}" y="${height-4}" font-size="8" fill="#9AA1AC" text-anchor="middle">${w.label}</text>`;
   });
 
   const WM_STORE_OPACITY = [1, 0.55, 0.32];
   visibleStores.forEach((store, si)=>{
     const op = WM_STORE_OPACITY[si % WM_STORE_OPACITY.length];
     const pts = series[si].map((v,i)=> v===null ? null : `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).filter(Boolean).join(' ');
-    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-opacity="${op}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>`;
+    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-opacity="${op}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>`;
     series[si].forEach((v,i)=>{
       if(v===null) return;
       const valueText = metricMeta.unit==='%' ? v.toLocaleString('ko-KR')+'%' : v.toLocaleString('ko-KR');
-      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="1.6" fill="${color}" fill-opacity="${op}"><title>${store} ${weeks[i].label}: ${valueText}</title></circle>`;
+      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="1.8" fill="${color}" fill-opacity="${op}"><title>${store} ${weeks[i].label}: ${valueText}</title></circle>`;
     });
   });
   svg += `</svg>`;
