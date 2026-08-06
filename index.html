@@ -239,7 +239,8 @@
   .wm-metric-tabs{display:flex;flex-wrap:wrap;gap:4px;background:#EEF0F3;border-radius:10px;padding:4px;}
   .wm-metric-tab{border:none;background:transparent;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;color:var(--text-secondary);cursor:pointer;font-family:inherit;white-space:nowrap;}
   .wm-metric-tab.active{background:#fff;color:var(--text-primary);box-shadow:0 1px 3px rgba(0,0,0,.08);}
-  .wm-chart-svg{width:100%;height:auto;display:block;}
+  .wm-chart-svg{width:100%;height:auto;display:block;overflow:visible;}
+  .wm-chart-wrap{padding:0 8px;}
   .wm-chart-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;justify-content:center;}
   .wm-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);font-weight:600;}
   .wm-chart-legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
@@ -1752,7 +1753,7 @@ function updateWeeklyMeetingField(store, weekStart, weekEnd, field, value){
 let weeklyMeetingChartMetric = 'revenue';
 function switchWeeklyMeetingChartMetric(key){ weeklyMeetingChartMetric = key; render(); }
 function buildWeeklyTrendChart(weeks, visibleStores, metricKey){
-  const width = 760, height = 220, padL = 60, padR = 16, padT = 16, padB = 30;
+  const width = 760, height = 220, padL = 70, padR = 45, padT = 20, padB = 34;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
 
@@ -1782,7 +1783,8 @@ function buildWeeklyTrendChart(weeks, visibleStores, metricKey){
   svg += `<text x="${padL-8}" y="${padT+4}" font-size="10" fill="#8A93A6" text-anchor="end">${Math.round(maxVal).toLocaleString('ko-KR')}</text>`;
   svg += `<text x="${padL-8}" y="${padT+innerH+4}" font-size="10" fill="#8A93A6" text-anchor="end">${Math.round(minVal).toLocaleString('ko-KR')}</text>`;
   weeks.forEach((w,i)=>{
-    svg += `<text x="${xOf(i)}" y="${height-8}" font-size="10" fill="#8A93A6" text-anchor="middle">${w.label}</text>`;
+    const anchor = i===0 ? 'start' : (i===weeks.length-1 ? 'end' : 'middle');
+    svg += `<text x="${xOf(i)}" y="${height-8}" font-size="10" fill="#8A93A6" text-anchor="${anchor}">${w.label}</text>`;
   });
 
   visibleStores.forEach((store, si)=>{
@@ -1896,7 +1898,7 @@ function renderWeeklyMeeting(){
           `).join('')}
         </div>
       </div>
-      ${visibleStores.length===0 ? `<div class="empty" style="padding:30px 0">브랜드 필터에서 스토어를 선택해주세요.</div>` : buildWeeklyTrendChart(weeks, visibleStores, weeklyMeetingChartMetric)}
+      ${visibleStores.length===0 ? `<div class="empty" style="padding:30px 0">브랜드 필터에서 스토어를 선택해주세요.</div>` : `<div class="wm-chart-wrap">${buildWeeklyTrendChart(weeks, visibleStores, weeklyMeetingChartMetric)}</div>`}
     </div>
 
     ${visibleStores.length===0 ? `<div class="card"><div class="empty">브랜드 필터에서 스토어를 선택해주세요.</div></div>` : visibleStores.map(store=>`
