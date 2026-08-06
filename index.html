@@ -245,12 +245,6 @@
   .wm-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);font-weight:600;}
   .wm-chart-legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
   .wm-chart-note{font-size:11px;color:var(--text-secondary);text-align:center;margin-top:8px;}
-
-  .wm-bar-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
-  .wm-bar-card{border:1px solid var(--border);border-radius:10px;padding:10px 10px 4px;}
-  .wm-bar-card-title{font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:4px;}
-  .wm-bar-svg{width:100%;height:auto;display:block;overflow:visible;}
-  .wm-bar-store-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:4px 0 6px;}
   .page-header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:24px;}
   .page-header h1{font-size:22px;font-weight:800;margin:0 0 4px 0;}
   .page-header .sub{font-size:13px;color:var(--text-secondary);}
@@ -1773,76 +1767,119 @@ const WM_METRIC_COLORS = {
   revenue: '#8B5CF6', profit: '#12805C', aov: '#F0932B', conversionRate: '#0EA5A5',
   visitors: '#2F6FED', eventSales: '#DB5A9E', subscribers: '#D64545',
 };
-const WM_STORE_SHADE = ['', '99', '66']; // 스토어가 여러 개일 때 같은 색을 살짝 연하게 구분(2번째, 3번째 스토어)
+const WM_DASH_PATTERNS = ['0', '6,4', '2,3'];
 
-/* 지표 하나짜리 작은 막대그래프 하나를 만든다. 지표별로 그래프를 따로 나누기 때문에
-   (매출액은 원, 전환율은 %처럼) 단위가 달라도 서로 겹치거나 헷갈릴 일이 없다. */
-function buildWeeklyMetricBarChart(weeks, visibleStores, metricKey){
-  const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===metricKey);
-  const color = WM_METRIC_COLORS[metricKey] || '#8B5CF6';
-  const width = 340, height = 170, padL = 8, padR = 8, padT = 22, padB = 24;
+/* 하나의 그래프에 지표를 여러 개 겹쳐서 보여준다. 예전엔 점마다 숫자를 다 적어놔서 서로 겹쳤는데,
+   이번엔 점은 작게(마우스 올리면 값 나옴)만 찍고, 값 글씨는 "각 선의 맨 마지막(가장 최근 주) 한 번만"
+   선 끝 오른쪽에 적어서 안 겹치게 한다. 여러 선의 끝점이 세로로 가까우면 그 라벨들끼리도 겹치지 않게
+   자동으로 살짝씩 떨어뜨린다. */
+function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
+  const width = 760, height = 210, padL = 54, padR = 160, padT = 16, padB = 28;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
+  const multiMetric = metricKeys.length > 1;
+  const multiStore = visibleStores.length > 1;
 
-  const series = visibleStores.map(store => weeks.map(w=>{
-    if(metricKey==='revenue'){
-      const v = weeklyRevenueFromDaily(store, w.start, w.end);
-      return v>0 ? v : null;
-    }
-    const entry = findWeeklyEntry(store, w.start);
-    const val = entry ? entry[metricKey] : '';
-    return (val===''||val===undefined||val===null) ? null : Number(val);
-  }));
-
-  const allVals = series.flat().filter(v=>v!==null);
-  if(allVals.length===0){
-    return `<div class="wm-bar-card"><div class="wm-bar-card-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div><div class="empty" style="padding:24px 0;font-size:11.5px">데이터 없음</div></div>`;
-  }
-  const maxVal = Math.max(0, ...allVals);
-  const minVal = Math.min(0, ...allVals);
-  const range = (maxVal-minVal) || Math.abs(maxVal) || 1;
-  const yOf = v => padT + innerH - ((v-minVal)/range)*innerH;
-  const zeroY = yOf(0);
-
-  const groupW = innerW/weeks.length;
-  const barGap = 3;
-  const nStores = visibleStores.length;
-  const barW = Math.max(8, (groupW - barGap*(nStores+1)) / nStores);
-
-  let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-bar-svg">`;
-  svg += `<line x1="${padL}" y1="${zeroY}" x2="${padL+innerW}" y2="${zeroY}" stroke="#E2E5EA" stroke-width="1"/>`;
-
-  weeks.forEach((w,wi)=>{
-    const groupX = padL + wi*groupW;
-    visibleStores.forEach((store, si)=>{
-      const v = series[si][wi];
-      const bx = groupX + barGap + si*(barW+barGap);
-      if(v===null){
-        return;
-      }
-      const by = Math.min(yOf(v), zeroY);
-      const bh = Math.max(Math.abs(yOf(v)-zeroY), 1);
-      const shade = WM_STORE_SHADE[si % WM_STORE_SHADE.length] || '';
-      svg += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${color}${shade}" rx="2"><title>${store} ${w.label}: ${v.toLocaleString('ko-KR')}${metricMeta.unit==='%'?'%':''}</title></rect>`;
-      const labelText = metricMeta.unit==='%' ? v.toLocaleString('ko-KR')+'%' : (v>=10000 ? Math.round(v/1000).toLocaleString('ko-KR')+'천' : v.toLocaleString('ko-KR'));
-      const labelY = v>=0 ? by-3 : by+bh+9;
-      svg += `<text x="${(bx+barW/2).toFixed(1)}" y="${labelY.toFixed(1)}" font-size="7.5" fill="${color}" text-anchor="middle" font-weight="700">${labelText}</text>`;
+  const lines = [];
+  visibleStores.forEach((store, storeIdx)=>{
+    metricKeys.forEach(metricKey=>{
+      const raw = weeks.map(w=>{
+        if(metricKey==='revenue'){
+          const v = weeklyRevenueFromDaily(store, w.start, w.end);
+          return v>0 ? v : null;
+        }
+        const entry = findWeeklyEntry(store, w.start);
+        const val = entry ? entry[metricKey] : '';
+        return (val===''||val===undefined||val===null) ? null : Number(val);
+      });
+      lines.push({store, storeIdx, metricKey, raw});
     });
-    svg += `<text x="${(groupX+groupW/2).toFixed(1)}" y="${height-6}" font-size="7.5" fill="#8A93A6" text-anchor="middle">${w.label}</text>`;
+  });
+
+  const hasAnyData = lines.some(l=>l.raw.some(v=>v!==null));
+  if(!hasAnyData){
+    return `<div class="empty" style="padding:30px 0">선택한 지표에 입력된 데이터가 아직 없어요.</div>`;
+  }
+
+  let yMin, yMax;
+  if(multiMetric){
+    lines.forEach(l=>{
+      const vals = l.raw.filter(v=>v!==null);
+      if(vals.length===0){ l.display = l.raw.map(()=>null); return; }
+      const mn = Math.min(...vals), mx = Math.max(...vals);
+      const rng = (mx-mn) || Math.abs(mx) || 1;
+      l.display = l.raw.map(v=> v===null ? null : ((v-mn)/rng*100));
+    });
+    yMin = 0; yMax = 100;
+  } else {
+    lines.forEach(l=>{ l.display = l.raw; });
+    const allVals = lines.flatMap(l=>l.raw).filter(v=>v!==null);
+    yMax = Math.max(...allVals);
+    yMin = Math.min(0, ...allVals);
+    if(yMax===yMin) yMax = yMin + 1;
+  }
+  const range = yMax - yMin;
+  const xStep = weeks.length>1 ? innerW/(weeks.length-1) : 0;
+  const xOf = i => padL + i*xStep;
+  const yOf = v => padT + innerH - ((v-yMin)/range)*innerH;
+
+  let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-chart-svg" preserveAspectRatio="xMidYMid meet">`;
+  svg += `<line x1="${padL}" y1="${yOf(yMin)}" x2="${padL+innerW}" y2="${yOf(yMin)}" stroke="#EDEFF2" stroke-width="1"/>`;
+  weeks.forEach((w,i)=>{
+    const anchor = i===0 ? 'start' : (i===weeks.length-1 ? 'end' : 'middle');
+    svg += `<text x="${xOf(i)}" y="${height-8}" font-size="9.5" fill="#A2A9B5" text-anchor="${anchor}">${w.label}</text>`;
+  });
+
+  // 선과 (마우스 올리면 값이 보이는) 작은 점들만 먼저 그린다 — 화면에 숫자를 늘어놓지 않아서 깔끔하다
+  lines.forEach(l=>{
+    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
+    const dashIdx = multiStore ? (l.storeIdx % WM_DASH_PATTERNS.length) : 0;
+    const dash = WM_DASH_PATTERNS[dashIdx];
+    const pts = l.display.map((v,i)=> v===null ? null : `${xOf(i)},${yOf(v)}`).filter(Boolean).join(' ');
+    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
+    const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
+    l.raw.forEach((rawVal,i)=>{
+      if(rawVal===null) return;
+      const valueText = metricMeta.unit==='%' ? rawVal.toLocaleString('ko-KR')+'%' : rawVal.toLocaleString('ko-KR');
+      svg += `<circle cx="${xOf(i)}" cy="${yOf(l.display[i])}" r="2.2" fill="${color}"><title>${l.store} ${metricMeta.label} ${weeks[i].label}: ${valueText}</title></circle>`;
+    });
+  });
+
+  // 각 선의 "가장 최근 값이 있는 점"에만 값 라벨을 선 끝 오른쪽에 붙인다. 여러 선의 끝점이 세로로
+  // 가까이 붙어있으면 라벨끼리 겹치지 않도록 최소 간격을 두고 위아래로 살짝씩 밀어낸다.
+  const endLabels = [];
+  lines.forEach(l=>{
+    for(let i=l.raw.length-1;i>=0;i--){
+      if(l.raw[i]!==null){
+        const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
+        const valueText = metricMeta.unit==='%' ? l.raw[i].toLocaleString('ko-KR')+'%' : l.raw[i].toLocaleString('ko-KR');
+        const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
+        const storePrefix = multiStore ? `${l.store} ` : '';
+        endLabels.push({ y: yOf(l.display[i]), text: `${storePrefix}${metricMeta.label} ${valueText}`, color });
+        break;
+      }
+    }
+  });
+  endLabels.sort((a,b)=>a.y-b.y);
+  const LABEL_GAP = 13;
+  endLabels.forEach((e,idx)=>{
+    e.labelY = idx===0 ? e.y+3 : Math.max(e.y+3, endLabels[idx-1].labelY + LABEL_GAP);
+  });
+  endLabels.forEach(e=>{
+    svg += `<text x="${padL+innerW+7}" y="${e.labelY}" font-size="9.5" fill="${e.color}" font-weight="700">${e.text}</text>`;
   });
   svg += `</svg>`;
 
-  const storeLegend = nStores>1 ? `<div class="wm-bar-store-legend">${visibleStores.map((s,si)=>{
-    const shade = WM_STORE_SHADE[si % WM_STORE_SHADE.length] || '';
-    return `<span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${color}${shade}"></span>${s}</span>`;
-  }).join('')}</div>` : '';
+  const legend = lines.map(l=>{
+    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
+    const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
+    const storeLabel = multiStore ? `${l.store} · ` : '';
+    return `<span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${color}"></span>${storeLabel}${metricMeta.label}</span>`;
+  }).join('');
 
-  return `<div class="wm-bar-card"><div class="wm-bar-card-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div>${svg}${storeLegend}</div>`;
-}
+  const note = multiMetric ? `<div class="wm-chart-note">※ 지표마다 단위가 달라서, 선의 높이는 0~100%로 환산했어요. 실제 값은 선 끝과 점에 표시/마우스오버로 확인하세요.</div>` : '';
 
-function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
-  const grids = metricKeys.map(key => buildWeeklyMetricBarChart(weeks, visibleStores, key)).join('');
-  return `<div class="wm-bar-grid">${grids}</div>`;
+  return `${svg}<div class="wm-chart-legend">${legend}</div>${note}`;
 }
 
 function pctChangeOf(curr, prev){
