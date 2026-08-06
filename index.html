@@ -243,11 +243,13 @@
   .wm-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);font-weight:600;}
   .wm-chart-legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
 
-  .wm-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px;}
-  .wm-mini-card{border:1px solid var(--border);border-radius:10px;padding:10px 10px 6px;}
-  .wm-mini-title{font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:2px;}
+  .wm-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;}
+  .wm-mini-card{border:1px solid var(--border);border-radius:9px;padding:7px 8px 5px;}
+  .wm-mini-title{font-size:10px;font-weight:800;color:var(--text-primary);margin-bottom:1px;}
+  .wm-mini-title .wm-unit{font-size:9px;}
+  .wm-mini-store-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding-top:2px;}
+  .wm-mini-store-legend .wm-chart-legend-item{font-size:9px;gap:3px;}
   .wm-mini-svg{width:100%;height:auto;display:block;overflow:visible;}
-  .wm-mini-store-legend{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;padding-top:4px;}
   .wm-mini-legend-line{display:inline-block;width:14px;border-top:2px solid;}
   .page-header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:24px;}
   .page-header h1{font-size:22px;font-weight:800;margin:0 0 4px 0;}
@@ -1803,7 +1805,7 @@ function formatMiniAxisNumber(v, unit){
 function buildWeeklyMetricLineChart(weeks, visibleStores, metricKey){
   const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===metricKey);
   const color = WM_METRIC_COLORS[metricKey] || '#8B5CF6';
-  const width = 340, height = 148, padL = 46, padR = 10, padT = 12, padB = 22;
+  const width = 220, height = 96, padL = 30, padR = 6, padT = 8, padB = 15;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
 
@@ -1819,7 +1821,7 @@ function buildWeeklyMetricLineChart(weeks, visibleStores, metricKey){
 
   const allVals = series.flat().filter(v=>v!==null);
   if(allVals.length===0){
-    return `<div class="wm-mini-card"><div class="wm-mini-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div><div class="empty" style="padding:26px 0;font-size:11px">데이터 없음</div></div>`;
+    return `<div class="wm-mini-card"><div class="wm-mini-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div><div class="empty" style="padding:16px 0;font-size:10px">데이터 없음</div></div>`;
   }
 
   const ticks = niceAxisTicks(Math.min(0,...allVals), Math.max(...allVals), 4);
@@ -1832,27 +1834,28 @@ function buildWeeklyMetricLineChart(weeks, visibleStores, metricKey){
   let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-mini-svg">`;
   ticks.forEach(t=>{
     const ty = yOf(t);
-    svg += `<line x1="${padL}" y1="${ty.toFixed(1)}" x2="${padL+innerW}" y2="${ty.toFixed(1)}" stroke="#F0F1F4" stroke-width="1"/>`;
-    svg += `<text x="${padL-6}" y="${(ty+3).toFixed(1)}" font-size="8" fill="#9AA1AC" text-anchor="end">${formatMiniAxisNumber(t, metricMeta.unit)}</text>`;
+    svg += `<line x1="${padL}" y1="${ty.toFixed(1)}" x2="${padL+innerW}" y2="${ty.toFixed(1)}" stroke="#F0F1F4" stroke-width="0.6"/>`;
+    svg += `<text x="${padL-4}" y="${(ty+2.5).toFixed(1)}" font-size="5.5" fill="#9AA1AC" text-anchor="end">${formatMiniAxisNumber(t, metricMeta.unit)}</text>`;
   });
   weeks.forEach((w,i)=>{
-    svg += `<text x="${xOf(i).toFixed(1)}" y="${height-6}" font-size="8" fill="#9AA1AC" text-anchor="middle">${w.label}</text>`;
+    svg += `<text x="${xOf(i).toFixed(1)}" y="${height-4}" font-size="5.5" fill="#9AA1AC" text-anchor="middle">${w.label}</text>`;
   });
 
+  const WM_STORE_OPACITY = [1, 0.55, 0.32];
   visibleStores.forEach((store, si)=>{
-    const dash = WM_DASH_PATTERNS[si % WM_DASH_PATTERNS.length];
+    const op = WM_STORE_OPACITY[si % WM_STORE_OPACITY.length];
     const pts = series[si].map((v,i)=> v===null ? null : `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).filter(Boolean).join(' ');
-    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
+    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-opacity="${op}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>`;
     series[si].forEach((v,i)=>{
       if(v===null) return;
       const valueText = metricMeta.unit==='%' ? v.toLocaleString('ko-KR')+'%' : v.toLocaleString('ko-KR');
-      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="2.8" fill="${color}"><title>${store} ${weeks[i].label}: ${valueText}</title></circle>`;
+      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="1.6" fill="${color}" fill-opacity="${op}"><title>${store} ${weeks[i].label}: ${valueText}</title></circle>`;
     });
   });
   svg += `</svg>`;
 
   const storeLegend = visibleStores.length>1 ? `<div class="wm-mini-store-legend">${visibleStores.map((s,si)=>`
-    <span class="wm-chart-legend-item"><span class="wm-mini-legend-line" style="border-top-color:${color};${WM_DASH_PATTERNS[si%WM_DASH_PATTERNS.length]!=='0'?'border-top-style:dashed;':''}"></span>${s}</span>
+    <span class="wm-chart-legend-item"><span class="wm-mini-legend-line" style="border-top-color:${color};opacity:${WM_STORE_OPACITY[si%WM_STORE_OPACITY.length]}"></span>${s}</span>
   `).join('')}</div>` : '';
 
   return `<div class="wm-mini-card"><div class="wm-mini-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div>${svg}${storeLegend}</div>`;
