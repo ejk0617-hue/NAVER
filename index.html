@@ -231,7 +231,7 @@
   .wm-metric-col{font-size:12.5px;font-weight:700;white-space:nowrap;text-align:left !important;color:var(--text-primary);}
   .wm-unit{font-weight:400;color:var(--text-secondary);font-size:11px;}
   .wm-input{width:100px;text-align:right;}
-  .wm-input-readonly{background:#F5F1FC;border:1px solid #E4D9F7;border-radius:6px;padding:7px 9px;color:#6B3FB8;font-weight:700;}
+  .wm-input-readonly{background:#F5F1FC;border:1px solid #E4D9F7;border-radius:6px;padding:7px 9px;color:#6B3FB8;font-weight:700;text-align:right;}
   .wm-auto-badge{display:inline-block;background:#8B5CF622;color:#8B5CF6;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:8px;margin-left:2px;}
   .wm-delta{font-size:10px;font-weight:800;text-align:right;margin-top:2px;padding-right:2px;}
   .wm-delta.up{color:#D64545;}
@@ -1830,19 +1830,36 @@ function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
     svg += `<text x="${xOf(i)}" y="${height-8}" font-size="10" fill="#8A93A6" text-anchor="${anchor}">${w.label}</text>`;
   });
 
+  // 먼저 선(line)들만 그린다
   lines.forEach(l=>{
     const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
     const dashIdx = multiStore ? (l.storeIdx % WM_DASH_PATTERNS.length) : 0;
     const dash = WM_DASH_PATTERNS[dashIdx];
     const pts = l.display.map((v,i)=> v===null ? null : `${xOf(i)},${yOf(v)}`).filter(Boolean).join(' ');
     if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
-    const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
-    l.raw.forEach((rawVal,i)=>{
+  });
+
+  // 점과 값 라벨은 "같은 주(x)에 여러 선이 몰려있을 때 라벨끼리 겹치지 않도록" 주(week) 단위로 세로 위치를 조정해서 그린다
+  const LABEL_GAP = 10;
+  weeks.forEach((w,i)=>{
+    const pointsHere = [];
+    lines.forEach(l=>{
+      const rawVal = l.raw[i];
       if(rawVal===null) return;
-      const dy = yOf(l.display[i]);
+      const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
+      const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
       const valueText = metricMeta.unit==='%' ? `${rawVal.toLocaleString('ko-KR')}%` : rawVal.toLocaleString('ko-KR');
-      svg += `<circle cx="${xOf(i)}" cy="${dy}" r="3" fill="${color}"><title>${l.store} ${metricMeta.label} ${weeks[i].label}: ${valueText}</title></circle>`;
-      svg += `<text x="${xOf(i)}" y="${dy-8}" font-size="9" fill="${color}" text-anchor="middle" font-weight="700">${valueText}</text>`;
+      pointsHere.push({ y: yOf(l.display[i]), color, valueText, store:l.store, metricLabel: metricMeta.label });
+    });
+    // 화면 위쪽(값이 큰 점)부터 정렬한 뒤, 라벨이 최소 간격 이상 떨어지도록 아래로 밀어낸다
+    pointsHere.sort((a,b)=>a.y-b.y);
+    pointsHere.forEach((p,idx)=>{
+      const natural = p.y - 7;
+      p.labelY = idx===0 ? natural : Math.max(natural, pointsHere[idx-1].labelY + LABEL_GAP);
+    });
+    pointsHere.forEach(p=>{
+      svg += `<circle cx="${xOf(i)}" cy="${p.y}" r="2.5" fill="${p.color}"><title>${p.store} ${p.metricLabel} ${w.label}: ${p.valueText}</title></circle>`;
+      svg += `<text x="${xOf(i)}" y="${p.labelY}" font-size="7.5" fill="${p.color}" text-anchor="middle" font-weight="700">${p.valueText}</text>`;
     });
   });
   svg += `</svg>`;
