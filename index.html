@@ -231,7 +231,7 @@
   .wm-metric-col{font-size:12.5px;font-weight:700;white-space:nowrap;text-align:left !important;color:var(--text-primary);}
   .wm-unit{font-weight:400;color:var(--text-secondary);font-size:11px;}
   .wm-input{width:100px;text-align:right;}
-  .wm-input-readonly{background:#F5F1FC;border:1px solid #E4D9F7;border-radius:6px;padding:7px 9px;color:#6B3FB8;font-weight:700;text-align:right;}
+  .wm-input-readonly{background:#F5F1FC;border-color:#E4D9F7 !important;color:#6B3FB8;}
   .wm-auto-badge{display:inline-block;background:#8B5CF622;color:#8B5CF6;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:8px;margin-left:2px;}
   .wm-delta{font-size:10px;font-weight:800;text-align:right;margin-top:2px;padding-right:2px;}
   .wm-delta.up{color:#D64545;}
@@ -245,6 +245,12 @@
   .wm-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);font-weight:600;}
   .wm-chart-legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
   .wm-chart-note{font-size:11px;color:var(--text-secondary);text-align:center;margin-top:8px;}
+
+  .wm-bar-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;}
+  .wm-bar-card{border:1px solid var(--border);border-radius:10px;padding:10px 10px 4px;}
+  .wm-bar-card-title{font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:4px;}
+  .wm-bar-svg{width:100%;height:auto;display:block;overflow:visible;}
+  .wm-bar-store-legend{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:4px 0 6px;}
   .page-header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:24px;}
   .page-header h1{font-size:22px;font-weight:800;margin:0 0 4px 0;}
   .page-header .sub{font-size:13px;color:var(--text-secondary);}
@@ -1763,117 +1769,80 @@ function toggleWeeklyMeetingChartMetric(key){
   }
   render();
 }
-const WM_DASH_PATTERNS = ['0', '7,4', '2,3', '9,3,2,3'];
 const WM_METRIC_COLORS = {
   revenue: '#8B5CF6', profit: '#12805C', aov: '#F0932B', conversionRate: '#0EA5A5',
   visitors: '#2F6FED', eventSales: '#DB5A9E', subscribers: '#D64545',
 };
-function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
-  const width = 760, height = 240, padL = 70, padR = 45, padT = 24, padB = 34;
+const WM_STORE_SHADE = ['', '99', '66']; // 스토어가 여러 개일 때 같은 색을 살짝 연하게 구분(2번째, 3번째 스토어)
+
+/* 지표 하나짜리 작은 막대그래프 하나를 만든다. 지표별로 그래프를 따로 나누기 때문에
+   (매출액은 원, 전환율은 %처럼) 단위가 달라도 서로 겹치거나 헷갈릴 일이 없다. */
+function buildWeeklyMetricBarChart(weeks, visibleStores, metricKey){
+  const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===metricKey);
+  const color = WM_METRIC_COLORS[metricKey] || '#8B5CF6';
+  const width = 340, height = 170, padL = 8, padR = 8, padT = 22, padB = 24;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
-  const multiMetric = metricKeys.length > 1;
-  const multiStore = visibleStores.length > 1;
 
-  // 스토어 x 지표 조합마다 선(line) 하나씩 만든다. 색은 지표별로 고정, 스토어가 여러 개면 선 모양(실선/점선)으로 구분한다.
-  const lines = [];
-  visibleStores.forEach((store, storeIdx)=>{
-    metricKeys.forEach(metricKey=>{
-      const raw = weeks.map(w=>{
-        if(metricKey==='revenue'){
-          const v = weeklyRevenueFromDaily(store, w.start, w.end);
-          return v>0 ? v : null;
-        }
-        const entry = findWeeklyEntry(store, w.start);
-        const val = entry ? entry[metricKey] : '';
-        return (val===''||val===undefined||val===null) ? null : Number(val);
-      });
-      lines.push({store, storeIdx, metricKey, raw});
-    });
-  });
+  const series = visibleStores.map(store => weeks.map(w=>{
+    if(metricKey==='revenue'){
+      const v = weeklyRevenueFromDaily(store, w.start, w.end);
+      return v>0 ? v : null;
+    }
+    const entry = findWeeklyEntry(store, w.start);
+    const val = entry ? entry[metricKey] : '';
+    return (val===''||val===undefined||val===null) ? null : Number(val);
+  }));
 
-  const hasAnyData = lines.some(l=>l.raw.some(v=>v!==null));
-  if(!hasAnyData){
-    return `<div class="empty" style="padding:30px 0">선택한 지표에 입력된 데이터가 아직 없어요.</div>`;
+  const allVals = series.flat().filter(v=>v!==null);
+  if(allVals.length===0){
+    return `<div class="wm-bar-card"><div class="wm-bar-card-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div><div class="empty" style="padding:24px 0;font-size:11.5px">데이터 없음</div></div>`;
   }
+  const maxVal = Math.max(0, ...allVals);
+  const minVal = Math.min(0, ...allVals);
+  const range = (maxVal-minVal) || Math.abs(maxVal) || 1;
+  const yOf = v => padT + innerH - ((v-minVal)/range)*innerH;
+  const zeroY = yOf(0);
 
-  let yMin, yMax;
-  if(multiMetric){
-    // 지표마다 단위·크기가 다르므로(매출액 vs 전환율 등), 각 선을 자기 안에서 0~100%로 환산해서
-    // 절대값이 아니라 "추이(모양)"를 서로 비교할 수 있게 한다. 실제 값(원래 단위)은 그래프 위 숫자로 그대로 보여준다.
-    lines.forEach(l=>{
-      const vals = l.raw.filter(v=>v!==null);
-      if(vals.length===0){ l.display = l.raw.map(()=>null); return; }
-      const mn = Math.min(...vals), mx = Math.max(...vals);
-      const rng = (mx-mn) || Math.abs(mx) || 1;
-      l.display = l.raw.map(v=> v===null ? null : ((v-mn)/rng*100));
-    });
-    yMin = 0; yMax = 100;
-  } else {
-    lines.forEach(l=>{ l.display = l.raw; });
-    const allVals = lines.flatMap(l=>l.raw).filter(v=>v!==null);
-    yMax = Math.max(...allVals);
-    yMin = Math.min(0, ...allVals);
-    if(yMax===yMin) yMax = yMin + 1;
-  }
-  const range = yMax - yMin;
-  const xStep = weeks.length>1 ? innerW/(weeks.length-1) : 0;
-  const xOf = i => padL + i*xStep;
-  const yOf = v => padT + innerH - ((v-yMin)/range)*innerH;
+  const groupW = innerW/weeks.length;
+  const barGap = 3;
+  const nStores = visibleStores.length;
+  const barW = Math.max(8, (groupW - barGap*(nStores+1)) / nStores);
 
-  let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-chart-svg" preserveAspectRatio="xMidYMid meet">`;
-  svg += `<line x1="${padL}" y1="${yOf(yMin)}" x2="${padL+innerW}" y2="${yOf(yMin)}" stroke="#E2E5EA" stroke-width="1"/>`;
-  svg += `<text x="${padL-8}" y="${padT+4}" font-size="10" fill="#8A93A6" text-anchor="end">${multiMetric?'100%':Math.round(yMax).toLocaleString('ko-KR')}</text>`;
-  svg += `<text x="${padL-8}" y="${padT+innerH+4}" font-size="10" fill="#8A93A6" text-anchor="end">${multiMetric?'0%':Math.round(yMin).toLocaleString('ko-KR')}</text>`;
-  weeks.forEach((w,i)=>{
-    const anchor = i===0 ? 'start' : (i===weeks.length-1 ? 'end' : 'middle');
-    svg += `<text x="${xOf(i)}" y="${height-8}" font-size="10" fill="#8A93A6" text-anchor="${anchor}">${w.label}</text>`;
-  });
+  let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-bar-svg">`;
+  svg += `<line x1="${padL}" y1="${zeroY}" x2="${padL+innerW}" y2="${zeroY}" stroke="#E2E5EA" stroke-width="1"/>`;
 
-  // 먼저 선(line)들만 그린다
-  lines.forEach(l=>{
-    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
-    const dashIdx = multiStore ? (l.storeIdx % WM_DASH_PATTERNS.length) : 0;
-    const dash = WM_DASH_PATTERNS[dashIdx];
-    const pts = l.display.map((v,i)=> v===null ? null : `${xOf(i)},${yOf(v)}`).filter(Boolean).join(' ');
-    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
-  });
-
-  // 점과 값 라벨은 "같은 주(x)에 여러 선이 몰려있을 때 라벨끼리 겹치지 않도록" 주(week) 단위로 세로 위치를 조정해서 그린다
-  const LABEL_GAP = 10;
-  weeks.forEach((w,i)=>{
-    const pointsHere = [];
-    lines.forEach(l=>{
-      const rawVal = l.raw[i];
-      if(rawVal===null) return;
-      const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
-      const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
-      const valueText = metricMeta.unit==='%' ? `${rawVal.toLocaleString('ko-KR')}%` : rawVal.toLocaleString('ko-KR');
-      pointsHere.push({ y: yOf(l.display[i]), color, valueText, store:l.store, metricLabel: metricMeta.label });
+  weeks.forEach((w,wi)=>{
+    const groupX = padL + wi*groupW;
+    visibleStores.forEach((store, si)=>{
+      const v = series[si][wi];
+      const bx = groupX + barGap + si*(barW+barGap);
+      if(v===null){
+        return;
+      }
+      const by = Math.min(yOf(v), zeroY);
+      const bh = Math.max(Math.abs(yOf(v)-zeroY), 1);
+      const shade = WM_STORE_SHADE[si % WM_STORE_SHADE.length] || '';
+      svg += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${color}${shade}" rx="2"><title>${store} ${w.label}: ${v.toLocaleString('ko-KR')}${metricMeta.unit==='%'?'%':''}</title></rect>`;
+      const labelText = metricMeta.unit==='%' ? v.toLocaleString('ko-KR')+'%' : (v>=10000 ? Math.round(v/1000).toLocaleString('ko-KR')+'천' : v.toLocaleString('ko-KR'));
+      const labelY = v>=0 ? by-3 : by+bh+9;
+      svg += `<text x="${(bx+barW/2).toFixed(1)}" y="${labelY.toFixed(1)}" font-size="7.5" fill="${color}" text-anchor="middle" font-weight="700">${labelText}</text>`;
     });
-    // 화면 위쪽(값이 큰 점)부터 정렬한 뒤, 라벨이 최소 간격 이상 떨어지도록 아래로 밀어낸다
-    pointsHere.sort((a,b)=>a.y-b.y);
-    pointsHere.forEach((p,idx)=>{
-      const natural = p.y - 7;
-      p.labelY = idx===0 ? natural : Math.max(natural, pointsHere[idx-1].labelY + LABEL_GAP);
-    });
-    pointsHere.forEach(p=>{
-      svg += `<circle cx="${xOf(i)}" cy="${p.y}" r="2.5" fill="${p.color}"><title>${p.store} ${p.metricLabel} ${w.label}: ${p.valueText}</title></circle>`;
-      svg += `<text x="${xOf(i)}" y="${p.labelY}" font-size="7.5" fill="${p.color}" text-anchor="middle" font-weight="700">${p.valueText}</text>`;
-    });
+    svg += `<text x="${(groupX+groupW/2).toFixed(1)}" y="${height-6}" font-size="7.5" fill="#8A93A6" text-anchor="middle">${w.label}</text>`;
   });
   svg += `</svg>`;
 
-  const legend = lines.map(l=>{
-    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
-    const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
-    const storeLabel = multiStore ? `${l.store} · ` : '';
-    return `<span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${color}"></span>${storeLabel}${metricMeta.label}</span>`;
-  }).join('');
+  const storeLegend = nStores>1 ? `<div class="wm-bar-store-legend">${visibleStores.map((s,si)=>{
+    const shade = WM_STORE_SHADE[si % WM_STORE_SHADE.length] || '';
+    return `<span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${color}${shade}"></span>${s}</span>`;
+  }).join('')}</div>` : '';
 
-  const note = multiMetric ? `<div class="wm-chart-note">※ 지표마다 단위가 달라서, 선의 높이는 0~100%로 환산했어요. 점 위의 숫자가 실제 값이에요.</div>` : '';
+  return `<div class="wm-bar-card"><div class="wm-bar-card-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div>${svg}${storeLegend}</div>`;
+}
 
-  return `${svg}<div class="wm-chart-legend">${legend}</div>${note}`;
+function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
+  const grids = metricKeys.map(key => buildWeeklyMetricBarChart(weeks, visibleStores, key)).join('');
+  return `<div class="wm-bar-grid">${grids}</div>`;
 }
 
 function pctChangeOf(curr, prev){
@@ -1996,7 +1965,7 @@ function renderWeeklyMeeting(){
                       : (i>0 ? (findWeeklyEntry(store, weeks[i-1].start) ? findWeeklyEntry(store, weeks[i-1].start)[metric.key] : '') : '');
                     const pct = pctChangeOf(val, prevVal);
                     const cellInner = isRevenue
-                      ? `<div class="wm-input wm-input-readonly mono">${val ? Number(val).toLocaleString('ko-KR') : '-'}</div>`
+                      ? `<div class="row-input wm-input wm-input-readonly mono">${val ? Number(val).toLocaleString('ko-KR') : '-'}</div>`
                       : `<input class="row-input mono wm-input" type="text" inputmode="decimal" placeholder="-" value="${val?Number(val).toLocaleString('ko-KR'):''}" onchange="updateWeeklyMeetingField('${store.replace(/'/g,"\\'")}','${w.start}','${w.end}','${metric.key}',this.value)">`;
                     return `<td>
                       ${cellInner}
