@@ -223,6 +223,24 @@
   .ss-manual-event-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .ss-manual-event-row .btn-del{opacity:0;flex-shrink:0;}
   .ss-manual-event-row:hover .btn-del{opacity:1;}
+
+  /* ---------- 주간미팅 비교표 ---------- */
+  .wm-table{border-collapse:collapse;width:100%;min-width:640px;}
+  .wm-table th{font-size:12px;font-weight:800;color:var(--text-secondary);padding:8px 10px;border-bottom:2px solid var(--border);text-align:center;white-space:nowrap;}
+  .wm-table td{padding:5px 8px;border-bottom:1px solid var(--border);}
+  .wm-metric-col{font-size:12.5px;font-weight:700;white-space:nowrap;text-align:left !important;color:var(--text-primary);}
+  .wm-unit{font-weight:400;color:var(--text-secondary);font-size:11px;}
+  .wm-input{width:100px;text-align:right;}
+  .wm-delta{font-size:10px;font-weight:800;text-align:right;margin-top:2px;padding-right:2px;}
+  .wm-delta.up{color:#D64545;}
+  .wm-delta.down{color:#2F6FED;}
+  .wm-metric-tabs{display:flex;flex-wrap:wrap;gap:4px;background:#EEF0F3;border-radius:10px;padding:4px;}
+  .wm-metric-tab{border:none;background:transparent;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;color:var(--text-secondary);cursor:pointer;font-family:inherit;white-space:nowrap;}
+  .wm-metric-tab.active{background:#fff;color:var(--text-primary);box-shadow:0 1px 3px rgba(0,0,0,.08);}
+  .wm-chart-svg{width:100%;height:auto;display:block;}
+  .wm-chart-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;justify-content:center;}
+  .wm-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);font-weight:600;}
+  .wm-chart-legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
   .page-header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:24px;}
   .page-header h1{font-size:22px;font-weight:800;margin:0 0 4px 0;}
   .page-header .sub{font-size:13px;color:var(--text-secondary);}
@@ -497,6 +515,7 @@ const NAV_GROUPS = [
     {sectionKey:'fulfillment_items',        label:'품목 데이터', color:'#0369A1'},
   ]},
   {key:'smartstore', type:'single', sectionKey:'smartstore_sales', label:'스마트스토어', color:'#8B5CF6'},
+  {key:'weeklymeeting', type:'single', sectionKey:'weekly_meeting', label:'주간미팅', color:'#0EA5A5'},
 ];
 
 /* 예전엔 이 5개(쇼검 계정, GFA/스스광고/브검/비즈월렛 브랜드)가 코드에 고정된 값이었는데,
@@ -637,6 +656,7 @@ function sanitizeStateArrays(){
   ensureFulfillment();
   ensureBizwallet();
   ensureSmartstore();
+  ensureWeeklyMeeting();
   ensureDraftEntries();
 }
 sanitizeStateArrays();
@@ -1234,6 +1254,7 @@ function render(){
       case 'fulfillment_inbound_calc': main.innerHTML = renderFulfillmentInboundCalc(); break;
       case 'fulfillment_items': main.innerHTML = renderFulfillmentItems(); break;
       case 'smartstore_sales': main.innerHTML = renderSmartstoreDashboard(); break;
+      case 'weekly_meeting': main.innerHTML = renderWeeklyMeeting(); break;
       default: main.innerHTML = renderDashboard();
     }
   }catch(err){
@@ -1682,6 +1703,219 @@ function renderSmartstoreDashboard(){
         </table>
       </div>
     </div>
+  `;
+}
+/* =========================================================================
+   주간미팅 — 매주 목요일 미팅 기준(전주 목요일~이번주 수요일)으로 스토어별 지표를
+   주 단위로 입력하고, 한 달치를 나란히 비교하는 표를 보여준다.
+   ========================================================================= */
+function ensureWeeklyMeeting(){
+  if(!state.weeklyMeeting || typeof state.weeklyMeeting!=='object') state.weeklyMeeting = {entries: []};
+  if(!Array.isArray(state.weeklyMeeting.entries)) state.weeklyMeeting.entries = [];
+  return state.weeklyMeeting;
+}
+const WEEKLY_MEETING_METRICS = [
+  {key:'revenue', label:'매출액', unit:'원'},
+  {key:'profit', label:'이익액', unit:'원'},
+  {key:'aov', label:'객단가', unit:'원'},
+  {key:'conversionRate', label:'전환율', unit:'%'},
+  {key:'visitors', label:'유입수', unit:'명'},
+  {key:'eventSales', label:'행사매출', unit:'원'},
+  {key:'subscribers', label:'알림받기', unit:'명'},
+];
+function findWeeklyEntry(store, weekStart){
+  return ensureWeeklyMeeting().entries.find(e=>e.store===store && e.weekStart===weekStart);
+}
+function updateWeeklyMeetingField(store, weekStart, weekEnd, field, value){
+  const wm = ensureWeeklyMeeting();
+  let entry = wm.entries.find(e=>e.store===store && e.weekStart===weekStart);
+  if(!entry){
+    entry = {id:uid(), store, weekStart, weekEnd, revenue:'', profit:'', aov:'', conversionRate:'', visitors:'', eventSales:'', subscribers:''};
+    wm.entries.push(entry);
+  }
+  entry[field] = sanitizePromoNumber(value);
+  entry.weekEnd = weekEnd;
+  saveState(); render();
+}
+let weeklyMeetingChartMetric = 'revenue';
+function switchWeeklyMeetingChartMetric(key){ weeklyMeetingChartMetric = key; render(); }
+function buildWeeklyTrendChart(weeks, visibleStores, metricKey){
+  const width = 760, height = 220, padL = 60, padR = 16, padT = 16, padB = 30;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+
+  const seriesData = visibleStores.map(store => weeks.map(w=>{
+    const entry = findWeeklyEntry(store, w.start);
+    const raw = entry ? entry[metricKey] : '';
+    return (raw==='' || raw===undefined || raw===null) ? null : Number(raw);
+  }));
+
+  const allVals = seriesData.flat().filter(v=>v!==null);
+  if(allVals.length===0){
+    return `<div class="empty" style="padding:30px 0">이 지표에 입력된 데이터가 아직 없어요.</div>`;
+  }
+  let maxVal = Math.max(...allVals), minVal = Math.min(0, ...allVals);
+  if(maxVal===minVal) maxVal = minVal + 1;
+  const range = maxVal - minVal;
+  const xStep = weeks.length>1 ? innerW/(weeks.length-1) : 0;
+  const xOf = i => padL + i*xStep;
+  const yOf = v => padT + innerH - ((v-minVal)/range)*innerH;
+
+  let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-chart-svg" preserveAspectRatio="xMidYMid meet">`;
+  svg += `<line x1="${padL}" y1="${yOf(0)}" x2="${padL+innerW}" y2="${yOf(0)}" stroke="#E2E5EA" stroke-width="1"/>`;
+  svg += `<text x="${padL-8}" y="${padT+4}" font-size="10" fill="#8A93A6" text-anchor="end">${Math.round(maxVal).toLocaleString('ko-KR')}</text>`;
+  svg += `<text x="${padL-8}" y="${padT+innerH+4}" font-size="10" fill="#8A93A6" text-anchor="end">${Math.round(minVal).toLocaleString('ko-KR')}</text>`;
+  weeks.forEach((w,i)=>{
+    svg += `<text x="${xOf(i)}" y="${height-8}" font-size="10" fill="#8A93A6" text-anchor="middle">${w.label}</text>`;
+  });
+
+  visibleStores.forEach((store, si)=>{
+    const color = promoBrandColor(store);
+    const pts = seriesData[si].map((v,i)=> v===null ? null : `${xOf(i)},${yOf(v)}`).filter(Boolean).join(' ');
+    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5"/>`;
+    seriesData[si].forEach((v,i)=>{
+      if(v!==null) svg += `<circle cx="${xOf(i)}" cy="${yOf(v)}" r="3.5" fill="${color}"><title>${store} ${weeks[i].label}: ${v.toLocaleString('ko-KR')}</title></circle>`;
+    });
+  });
+  svg += `</svg>`;
+
+  const legend = visibleStores.map(store=>`
+    <span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${promoBrandColor(store)}"></span>${store}</span>
+  `).join('');
+
+  return `${svg}<div class="wm-chart-legend">${legend}</div>`;
+}
+
+function pctChangeOf(curr, prev){
+  if(curr===''||curr===undefined||curr===null||prev===''||prev===undefined||prev===null) return null;
+  const c = Number(curr), p = Number(prev);
+  if(!isFinite(c) || !isFinite(p) || p===0) return null;
+  return Math.round((c-p)/p*100);
+}
+
+/* 목요일 시작(전주 목~이번주 수) 기준 주간 구간들을, 지정한 달에 목요일이 포함되는 주만 골라 반환 */
+function thuWedWeeksOfMonth(y, m){
+  const pad2 = n => String(n).padStart(2,'0');
+  const fmt = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const flabel = d => `${d.getMonth()+1}/${d.getDate()}`;
+  const first = new Date(y, m-1, 1);
+  const last = new Date(y, m, 0);
+  const weeks = [];
+  for(let d = new Date(first); d<=last; d.setDate(d.getDate()+1)){
+    if(d.getDay()===4){
+      const start = new Date(d);
+      const end = new Date(d); end.setDate(end.getDate()+6);
+      weeks.push({start: fmt(start), end: fmt(end), label: `${flabel(start)}~${flabel(end)}`});
+    }
+  }
+  return weeks;
+}
+
+let weeklyMeetingView = null;
+function ensureWeeklyMeetingView(){
+  if(!weeklyMeetingView){ const t=new Date(); weeklyMeetingView={y:t.getFullYear(), m:t.getMonth()+1}; }
+  return weeklyMeetingView;
+}
+function weeklyMeetingPrev(){ const v=ensureWeeklyMeetingView(); v.m--; if(v.m<1){v.m=12; v.y--;} render(); }
+function weeklyMeetingNext(){ const v=ensureWeeklyMeetingView(); v.m++; if(v.m>12){v.m=1; v.y++;} render(); }
+function weeklyMeetingToday(){ weeklyMeetingView=null; render(); }
+
+function renderWeeklyMeetingBrandFilter(){
+  const promo = ensurePromotion();
+  const filterKey = 'weeklyMeetingFilter';
+  const primary = SMARTSTORE_PRIMARY_BRANDS;
+  const rest = promo.brands.filter(b=>!primary.includes(b));
+  const row = (label, brands) => brands.length===0 ? '' : `
+    <div class="ss-filter-row">
+      <span class="ss-filter-label">${label}</span>
+      ${brands.map(b=>`
+        <label class="ss-filter-chip">
+          <input type="checkbox" ${isBrandVisibleIn(filterKey,b)?'checked':''} onclick="toggleBrandFilterIn('${filterKey}','${b.replace(/'/g,"\\'")}')">
+          <span style="display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block;flex-shrink:0"></span>${b}</span>
+        </label>
+      `).join('')}
+    </div>`;
+  return `
+    <div class="ss-filter-box">
+      ${row('★ 주력 브랜드', primary)}
+      ${row('전체 브랜드', rest)}
+      <div class="ss-filter-actions">
+        <button class="copy-btn" onclick="setAllBrandFilterIn('${filterKey}', true)">전체선택</button>
+        <button class="copy-btn" onclick="setAllBrandFilterIn('${filterKey}', false)">전체해제</button>
+      </div>
+    </div>`;
+}
+
+function renderWeeklyMeeting(){
+  const promo = ensurePromotion();
+  const allStores = promo.brands;
+  const filterKey = 'weeklyMeetingFilter';
+  const visibleStores = allStores.filter(b=>isBrandVisibleIn(filterKey, b));
+  const view = ensureWeeklyMeetingView();
+  const weeks = thuWedWeeksOfMonth(view.y, view.m);
+
+  return `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:#0EA5A522;color:#0EA5A5">주간미팅</span>
+        <h1>주간미팅 데이터</h1>
+        <div class="sub">전주 목요일~이번주 수요일 기준으로 한 주씩 입력하면, 한 달 치를 나란히 비교할 수 있어요</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn ghost" onclick="weeklyMeetingPrev()" style="color:var(--text-primary)">◀</button>
+        <div style="font-weight:800;font-size:15px;min-width:80px;text-align:center">${view.y}년 ${view.m}월</div>
+        <button class="btn ghost" onclick="weeklyMeetingNext()" style="color:var(--text-primary)">▶</button>
+        <button class="btn ghost" onclick="weeklyMeetingToday()" style="color:var(--text-primary)">이번 달</button>
+      </div>
+    </div>
+
+    ${renderWeeklyMeetingBrandFilter()}
+
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <h2 style="margin:0">📈 지표 변동 추이</h2>
+        <div class="wm-metric-tabs">
+          ${WEEKLY_MEETING_METRICS.map(m=>`
+            <button class="wm-metric-tab ${weeklyMeetingChartMetric===m.key?'active':''}" onclick="switchWeeklyMeetingChartMetric('${m.key}')">${m.label}</button>
+          `).join('')}
+        </div>
+      </div>
+      ${visibleStores.length===0 ? `<div class="empty" style="padding:30px 0">브랜드 필터에서 스토어를 선택해주세요.</div>` : buildWeeklyTrendChart(weeks, visibleStores, weeklyMeetingChartMetric)}
+    </div>
+
+    ${visibleStores.length===0 ? `<div class="card"><div class="empty">브랜드 필터에서 스토어를 선택해주세요.</div></div>` : visibleStores.map(store=>`
+      <div class="card">
+        <h2 style="margin:0 0 12px">${store}</h2>
+        <div style="overflow-x:auto">
+          <table class="wm-table">
+            <thead>
+              <tr>
+                <th class="wm-metric-col">지표</th>
+                ${weeks.map(w=>`<th>${w.label}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${WEEKLY_MEETING_METRICS.map(metric=>`
+                <tr>
+                  <td class="wm-metric-col">${metric.label} <span class="wm-unit">(${metric.unit})</span></td>
+                  ${weeks.map((w,i)=>{
+                    const entry = findWeeklyEntry(store, w.start);
+                    const val = entry ? entry[metric.key] : '';
+                    const prevEntry = i>0 ? findWeeklyEntry(store, weeks[i-1].start) : null;
+                    const prevVal = prevEntry ? prevEntry[metric.key] : '';
+                    const pct = pctChangeOf(val, prevVal);
+                    return `<td>
+                      <input class="row-input mono wm-input" type="text" inputmode="decimal" placeholder="-" value="${val?Number(val).toLocaleString('ko-KR'):''}" onchange="updateWeeklyMeetingField('${store.replace(/'/g,"\\'")}','${w.start}','${w.end}','${metric.key}',this.value)">
+                      ${pct===null ? '' : `<div class="wm-delta ${pct>=0?'up':'down'}">${pct>=0?'▲':'▼'} ${Math.abs(pct)}%</div>`}
+                    </td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `).join('')}
   `;
 }
 function renderCategoryPlaceholder(title, color){
