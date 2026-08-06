@@ -1747,6 +1747,17 @@ function weeklyRevenueFromDaily(store, weekStart, weekEnd){
     .filter(r=> r.store===store && r.date>=weekStart && r.date<=weekEnd)
     .reduce((s,r)=> s + (Number(r.amount)||0), 0);
 }
+/* 지금 보고 있는 달의 첫 번째 주라도, 그 바로 앞주(전달 마지막 주일 수도 있음)를 달과 상관없이 구해서
+   증감률을 계속 이어서 비교할 수 있게 한다. (예: 8월 첫째 주는 7월 마지막 주와 비교) */
+function weekBefore(weekStartStr){
+  const pad2 = n => String(n).padStart(2,'0');
+  const fmt = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+  const start = new Date(weekStartStr+'T00:00:00');
+  start.setDate(start.getDate()-7);
+  const end = new Date(start);
+  end.setDate(end.getDate()+6);
+  return {start: fmt(start), end: fmt(end)};
+}
 function updateWeeklyMeetingField(store, weekStart, weekEnd, field, value){
   const wm = ensureWeeklyMeeting();
   let entry = wm.entries.find(e=>e.store===store && e.weekStart===weekStart);
@@ -1981,9 +1992,10 @@ function renderWeeklyMeeting(){
                   ${weeks.map((w,i)=>{
                     const isRevenue = metric.key==='revenue';
                     const val = isRevenue ? weeklyRevenueFromDaily(store, w.start, w.end) : (findWeeklyEntry(store, w.start) ? findWeeklyEntry(store, w.start)[metric.key] : '');
+                    const prevWeek = i>0 ? weeks[i-1] : weekBefore(w.start);
                     const prevVal = isRevenue
-                      ? (i>0 ? weeklyRevenueFromDaily(store, weeks[i-1].start, weeks[i-1].end) : '')
-                      : (i>0 ? (findWeeklyEntry(store, weeks[i-1].start) ? findWeeklyEntry(store, weeks[i-1].start)[metric.key] : '') : '');
+                      ? weeklyRevenueFromDaily(store, prevWeek.start, prevWeek.end)
+                      : (findWeeklyEntry(store, prevWeek.start) ? findWeeklyEntry(store, prevWeek.start)[metric.key] : '');
                     const pct = pctChangeOf(val, prevVal);
                     const cellInner = isRevenue
                       ? `<div class="row-input wm-input wm-input-readonly mono">${val ? Number(val).toLocaleString('ko-KR') : '-'}</div>`
