@@ -183,6 +183,9 @@
   .ss-row2col-cal-first{grid-template-columns:1.3fr 1fr;}
   @media (max-width:900px){ .ss-row2col-cal-first{grid-template-columns:1fr;} }
   .ss-goal-target-line{font-size:12.5px;color:var(--text-secondary);margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+  .ss-daily-trend-wrap{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}
+  .ss-daily-trend-title{font-size:11.5px;font-weight:800;color:var(--text-primary);margin-bottom:6px;}
+  .ss-daily-trend-svg{width:100%;height:auto;display:block;overflow:visible;}
   .ss-goal-target-line b{color:#8B5CF6;font-size:14px;margin:0 4px;white-space:nowrap;}
   .ss-goal-target-sub{font-size:11px;}
   .ss-gauge-detail{font-size:11px;color:var(--text-secondary);white-space:nowrap;overflow:visible;}
@@ -1600,7 +1603,8 @@ function renderSmartstoreDashboard(){
               <span class="ss-gauge-detail mono">${formatWon(g.actual)} / ${formatWon(Math.round(g.target))}</span>
             </div>
           `).join('')}
-        </div>`}
+        </div>
+        ${buildDailySalesTrendChart(iy, im, visibleStores)}`}
       </div>
 
       <div class="card ss-compact-card">
@@ -1815,6 +1819,67 @@ function formatMiniAxisNumber(v, unit){
   if(unit==='명') return Math.round(v).toLocaleString('ko-KR');
   if(Math.abs(v)>=10000) return Math.round(v/10000).toLocaleString('ko-KR')+'만';
   return Math.round(v).toLocaleString('ko-KR');
+}
+
+/* 매출 대시보드의 "목표 달성률" 카드 아래 남는 공간에 넣는, 그 달 일별 매출 추이 그래프.
+   스토어별로 선 색을 다르게 해서 겹쳐 보여준다(브랜드 필터에 쓰는 색과 동일하게 맞춰서 일관되게). */
+function buildDailySalesTrendChart(y, m, visibleStores){
+  if(visibleStores.length===0) return '';
+  const pad2 = n => String(n).padStart(2,'0');
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const ss = ensureSmartstore();
+
+  const series = visibleStores.map(store=>{
+    const arr = [];
+    for(let d=1; d<=daysInMonth; d++){
+      const dateStr = `${y}-${pad2(m)}-${pad2(d)}`;
+      const entry = ss.daily.find(r=>r.store===store && r.date===dateStr);
+      arr.push(entry && entry.amount ? Number(entry.amount) : null);
+    }
+    return arr;
+  });
+
+  const allVals = series.flat().filter(v=>v!==null);
+  if(allVals.length===0){
+    return `<div class="ss-daily-trend-wrap"><div class="ss-daily-trend-title">📈 일별 매출 추이</div><div class="empty" style="padding:16px 0;font-size:11px">이번 달 입력된 매출이 아직 없어요.</div></div>`;
+  }
+
+  const width = 380, height = 108, padL = 40, padR = 8, padT = 8, padB = 16;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  const ticks = niceAxisTicks(0, Math.max(...allVals), 3);
+  const yMin = ticks[0], yMax = ticks[ticks.length-1];
+  const range = (yMax-yMin) || 1;
+  const xStep = daysInMonth>1 ? innerW/(daysInMonth-1) : 0;
+  const xOf = i => padL + i*xStep;
+  const yOf = v => padT + innerH - ((v-yMin)/range)*innerH;
+
+  let svg = `<svg viewBox="0 0 ${width} ${height}" class="ss-daily-trend-svg">`;
+  ticks.forEach(t=>{
+    const ty = yOf(t);
+    svg += `<line x1="${padL}" y1="${ty.toFixed(1)}" x2="${padL+innerW}" y2="${ty.toFixed(1)}" stroke="#F0F1F4" stroke-width="0.75"/>`;
+    svg += `<text x="${padL-5}" y="${(ty+2.5).toFixed(1)}" font-size="7.5" fill="#9AA1AC" text-anchor="end">${formatMiniAxisNumber(t,'원')}</text>`;
+  });
+  [1, Math.round(daysInMonth/2), daysInMonth].forEach(d=>{
+    svg += `<text x="${xOf(d-1).toFixed(1)}" y="${height-3}" font-size="7.5" fill="#9AA1AC" text-anchor="middle">${d}일</text>`;
+  });
+
+  visibleStores.forEach((store, si)=>{
+    const color = promoBrandColor(store);
+    const pts = series[si].map((v,i)=> v===null ? null : `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).filter(Boolean).join(' ');
+    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+    series[si].forEach((v,i)=>{
+      if(v===null) return;
+      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="1.6" fill="${color}"><title>${store} ${m}/${i+1}: ${formatWon(v)}</title></circle>`;
+    });
+  });
+  svg += `</svg>`;
+
+  const legend = visibleStores.length>1 ? `<div class="wm-mini-store-legend">${visibleStores.map(s=>`
+    <span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${promoBrandColor(s)}"></span>${s}</span>
+  `).join('')}</div>` : '';
+
+  return `<div class="ss-daily-trend-wrap"><div class="ss-daily-trend-title">📈 일별 매출 추이</div>${svg}${legend}</div>`;
 }
 
 /* 지표 하나짜리 작은 꺾은선 그래프. 각자 자기 축(눈금 4~5개)을 가지고 있어서 다른 지표와
