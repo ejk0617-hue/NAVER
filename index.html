@@ -227,24 +227,28 @@
   /* ---------- 주간미팅 비교표 ---------- */
   .wm-table{border-collapse:collapse;width:100%;min-width:640px;}
   .wm-table th{font-size:12px;font-weight:800;color:var(--text-secondary);padding:8px 10px;border-bottom:2px solid var(--border);text-align:center;white-space:nowrap;}
-  .wm-table td{padding:5px 8px;border-bottom:1px solid var(--border);}
+  .wm-table td{padding:4px 6px;border-bottom:1px solid var(--border);}
   .wm-metric-col{font-size:12.5px;font-weight:700;white-space:nowrap;text-align:left !important;color:var(--text-primary);}
   .wm-unit{font-weight:400;color:var(--text-secondary);font-size:11px;}
-  .wm-input{width:100px;text-align:right;}
+  .wm-cell-row{display:flex;align-items:center;gap:6px;justify-content:flex-end;}
+  .wm-input{width:84px;flex-shrink:0;text-align:right;font-size:14.5px !important;font-weight:700;padding:6px 8px !important;}
   .wm-input-readonly{background:#F5F1FC;border-color:#E4D9F7 !important;color:#6B3FB8;}
   .wm-auto-badge{display:inline-block;background:#8B5CF622;color:#8B5CF6;font-size:9.5px;font-weight:800;padding:1px 6px;border-radius:8px;margin-left:2px;}
-  .wm-delta{font-size:10px;font-weight:800;text-align:right;margin-top:2px;padding-right:2px;}
+  .wm-delta{font-size:12px;font-weight:800;white-space:nowrap;flex-shrink:0;min-width:38px;}
   .wm-delta.up{color:#D64545;}
   .wm-delta.down{color:#2F6FED;}
   .wm-metric-tabs{display:flex;flex-wrap:wrap;gap:4px;background:#EEF0F3;border-radius:10px;padding:4px;}
   .wm-metric-tab{border:none;background:transparent;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;color:var(--text-secondary);cursor:pointer;font-family:inherit;white-space:nowrap;}
   .wm-metric-tab.active{background:#fff;color:var(--text-primary);box-shadow:0 1px 3px rgba(0,0,0,.08);}
-  .wm-chart-svg{width:100%;height:auto;display:block;overflow:visible;}
-  .wm-chart-wrap{padding:0 8px;}
-  .wm-chart-legend{display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;justify-content:center;}
   .wm-chart-legend-item{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--text-secondary);font-weight:600;}
   .wm-chart-legend-dot{width:8px;height:8px;border-radius:50%;display:inline-block;}
-  .wm-chart-note{font-size:11px;color:var(--text-secondary);text-align:center;margin-top:8px;}
+
+  .wm-mini-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px;}
+  .wm-mini-card{border:1px solid var(--border);border-radius:10px;padding:10px 10px 6px;}
+  .wm-mini-title{font-size:12px;font-weight:800;color:var(--text-primary);margin-bottom:2px;}
+  .wm-mini-svg{width:100%;height:auto;display:block;overflow:visible;}
+  .wm-mini-store-legend{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;padding-top:4px;}
+  .wm-mini-legend-line{display:inline-block;width:14px;border-top:2px solid;}
   .page-header{display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:24px;}
   .page-header h1{font-size:22px;font-weight:800;margin:0 0 4px 0;}
   .page-header .sub{font-size:13px;color:var(--text-secondary);}
@@ -1769,117 +1773,94 @@ const WM_METRIC_COLORS = {
 };
 const WM_DASH_PATTERNS = ['0', '6,4', '2,3'];
 
-/* 하나의 그래프에 지표를 여러 개 겹쳐서 보여준다. 예전엔 점마다 숫자를 다 적어놔서 서로 겹쳤는데,
-   이번엔 점은 작게(마우스 올리면 값 나옴)만 찍고, 값 글씨는 "각 선의 맨 마지막(가장 최근 주) 한 번만"
-   선 끝 오른쪽에 적어서 안 겹치게 한다. 여러 선의 끝점이 세로로 가까우면 그 라벨들끼리도 겹치지 않게
-   자동으로 살짝씩 떨어뜨린다. */
-function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
-  const width = 760, height = 210, padL = 54, padR = 160, padT = 16, padB = 28;
+/* Y축에 보기 좋은 간격(1/2/5 배수)으로 눈금 4~5개를 만든다 */
+function niceAxisTicks(min, max, count){
+  if(min===max){ min -= Math.abs(min)*0.1 || 1; max += Math.abs(max)*0.1 || 1; }
+  const range = max - min;
+  const rawStep = range / (count - 1);
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.abs(rawStep) || 1)));
+  const norm = rawStep / mag;
+  let step;
+  if(norm < 1.5) step = 1*mag;
+  else if(norm < 3) step = 2*mag;
+  else if(norm < 7) step = 5*mag;
+  else step = 10*mag;
+  const niceMin = Math.floor(min/step)*step;
+  const niceMax = Math.ceil(max/step)*step;
+  const ticks = [];
+  for(let v=niceMin; v<=niceMax+step*0.001; v+=step) ticks.push(Math.round(v*1000)/1000);
+  return ticks;
+}
+function formatMiniAxisNumber(v, unit){
+  if(unit==='%') return v.toLocaleString('ko-KR')+'%';
+  if(unit==='명') return Math.round(v).toLocaleString('ko-KR');
+  if(Math.abs(v)>=10000) return Math.round(v/10000).toLocaleString('ko-KR')+'만';
+  return Math.round(v).toLocaleString('ko-KR');
+}
+
+/* 지표 하나짜리 작은 꺾은선 그래프. 각자 자기 축(눈금 4~5개)을 가지고 있어서 다른 지표와
+   전혀 안 섞이고, 어떤 지표가 어떻게 흔들렸는지 그래프 모양만 봐도 바로 보인다. */
+function buildWeeklyMetricLineChart(weeks, visibleStores, metricKey){
+  const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===metricKey);
+  const color = WM_METRIC_COLORS[metricKey] || '#8B5CF6';
+  const width = 340, height = 148, padL = 46, padR = 10, padT = 12, padB = 22;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
-  const multiMetric = metricKeys.length > 1;
-  const multiStore = visibleStores.length > 1;
 
-  const lines = [];
-  visibleStores.forEach((store, storeIdx)=>{
-    metricKeys.forEach(metricKey=>{
-      const raw = weeks.map(w=>{
-        if(metricKey==='revenue'){
-          const v = weeklyRevenueFromDaily(store, w.start, w.end);
-          return v>0 ? v : null;
-        }
-        const entry = findWeeklyEntry(store, w.start);
-        const val = entry ? entry[metricKey] : '';
-        return (val===''||val===undefined||val===null) ? null : Number(val);
-      });
-      lines.push({store, storeIdx, metricKey, raw});
-    });
-  });
+  const series = visibleStores.map(store => weeks.map(w=>{
+    if(metricKey==='revenue'){
+      const v = weeklyRevenueFromDaily(store, w.start, w.end);
+      return v>0 ? v : null;
+    }
+    const entry = findWeeklyEntry(store, w.start);
+    const val = entry ? entry[metricKey] : '';
+    return (val===''||val===undefined||val===null) ? null : Number(val);
+  }));
 
-  const hasAnyData = lines.some(l=>l.raw.some(v=>v!==null));
-  if(!hasAnyData){
-    return `<div class="empty" style="padding:30px 0">선택한 지표에 입력된 데이터가 아직 없어요.</div>`;
+  const allVals = series.flat().filter(v=>v!==null);
+  if(allVals.length===0){
+    return `<div class="wm-mini-card"><div class="wm-mini-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div><div class="empty" style="padding:26px 0;font-size:11px">데이터 없음</div></div>`;
   }
 
-  let yMin, yMax;
-  if(multiMetric){
-    lines.forEach(l=>{
-      const vals = l.raw.filter(v=>v!==null);
-      if(vals.length===0){ l.display = l.raw.map(()=>null); return; }
-      const mn = Math.min(...vals), mx = Math.max(...vals);
-      const rng = (mx-mn) || Math.abs(mx) || 1;
-      l.display = l.raw.map(v=> v===null ? null : ((v-mn)/rng*100));
-    });
-    yMin = 0; yMax = 100;
-  } else {
-    lines.forEach(l=>{ l.display = l.raw; });
-    const allVals = lines.flatMap(l=>l.raw).filter(v=>v!==null);
-    yMax = Math.max(...allVals);
-    yMin = Math.min(0, ...allVals);
-    if(yMax===yMin) yMax = yMin + 1;
-  }
-  const range = yMax - yMin;
+  const ticks = niceAxisTicks(Math.min(0,...allVals), Math.max(...allVals), 4);
+  const yMin = ticks[0], yMax = ticks[ticks.length-1];
+  const range = (yMax - yMin) || 1;
   const xStep = weeks.length>1 ? innerW/(weeks.length-1) : 0;
   const xOf = i => padL + i*xStep;
   const yOf = v => padT + innerH - ((v-yMin)/range)*innerH;
 
-  let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-chart-svg" preserveAspectRatio="xMidYMid meet">`;
-  svg += `<line x1="${padL}" y1="${yOf(yMin)}" x2="${padL+innerW}" y2="${yOf(yMin)}" stroke="#EDEFF2" stroke-width="1"/>`;
+  let svg = `<svg viewBox="0 0 ${width} ${height}" class="wm-mini-svg">`;
+  ticks.forEach(t=>{
+    const ty = yOf(t);
+    svg += `<line x1="${padL}" y1="${ty.toFixed(1)}" x2="${padL+innerW}" y2="${ty.toFixed(1)}" stroke="#F0F1F4" stroke-width="1"/>`;
+    svg += `<text x="${padL-6}" y="${(ty+3).toFixed(1)}" font-size="8" fill="#9AA1AC" text-anchor="end">${formatMiniAxisNumber(t, metricMeta.unit)}</text>`;
+  });
   weeks.forEach((w,i)=>{
-    const anchor = i===0 ? 'start' : (i===weeks.length-1 ? 'end' : 'middle');
-    svg += `<text x="${xOf(i)}" y="${height-8}" font-size="9.5" fill="#A2A9B5" text-anchor="${anchor}">${w.label}</text>`;
+    svg += `<text x="${xOf(i).toFixed(1)}" y="${height-6}" font-size="8" fill="#9AA1AC" text-anchor="middle">${w.label}</text>`;
   });
 
-  // 선과 (마우스 올리면 값이 보이는) 작은 점들만 먼저 그린다 — 화면에 숫자를 늘어놓지 않아서 깔끔하다
-  lines.forEach(l=>{
-    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
-    const dashIdx = multiStore ? (l.storeIdx % WM_DASH_PATTERNS.length) : 0;
-    const dash = WM_DASH_PATTERNS[dashIdx];
-    const pts = l.display.map((v,i)=> v===null ? null : `${xOf(i)},${yOf(v)}`).filter(Boolean).join(' ');
-    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
-    const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
-    l.raw.forEach((rawVal,i)=>{
-      if(rawVal===null) return;
-      const valueText = metricMeta.unit==='%' ? rawVal.toLocaleString('ko-KR')+'%' : rawVal.toLocaleString('ko-KR');
-      svg += `<circle cx="${xOf(i)}" cy="${yOf(l.display[i])}" r="2.2" fill="${color}"><title>${l.store} ${metricMeta.label} ${weeks[i].label}: ${valueText}</title></circle>`;
+  visibleStores.forEach((store, si)=>{
+    const dash = WM_DASH_PATTERNS[si % WM_DASH_PATTERNS.length];
+    const pts = series[si].map((v,i)=> v===null ? null : `${xOf(i).toFixed(1)},${yOf(v).toFixed(1)}`).filter(Boolean).join(' ');
+    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
+    series[si].forEach((v,i)=>{
+      if(v===null) return;
+      const valueText = metricMeta.unit==='%' ? v.toLocaleString('ko-KR')+'%' : v.toLocaleString('ko-KR');
+      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="2.8" fill="${color}"><title>${store} ${weeks[i].label}: ${valueText}</title></circle>`;
     });
-  });
-
-  // 각 선의 "가장 최근 값이 있는 점"에만 값 라벨을 선 끝 오른쪽에 붙인다. 여러 선의 끝점이 세로로
-  // 가까이 붙어있으면 라벨끼리 겹치지 않도록 최소 간격을 두고 위아래로 살짝씩 밀어낸다.
-  const endLabels = [];
-  lines.forEach(l=>{
-    for(let i=l.raw.length-1;i>=0;i--){
-      if(l.raw[i]!==null){
-        const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
-        const valueText = metricMeta.unit==='%' ? l.raw[i].toLocaleString('ko-KR')+'%' : l.raw[i].toLocaleString('ko-KR');
-        const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
-        const storePrefix = multiStore ? `${l.store} ` : '';
-        endLabels.push({ y: yOf(l.display[i]), text: `${storePrefix}${metricMeta.label} ${valueText}`, color });
-        break;
-      }
-    }
-  });
-  endLabels.sort((a,b)=>a.y-b.y);
-  const LABEL_GAP = 13;
-  endLabels.forEach((e,idx)=>{
-    e.labelY = idx===0 ? e.y+3 : Math.max(e.y+3, endLabels[idx-1].labelY + LABEL_GAP);
-  });
-  endLabels.forEach(e=>{
-    svg += `<text x="${padL+innerW+7}" y="${e.labelY}" font-size="9.5" fill="${e.color}" font-weight="700">${e.text}</text>`;
   });
   svg += `</svg>`;
 
-  const legend = lines.map(l=>{
-    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
-    const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
-    const storeLabel = multiStore ? `${l.store} · ` : '';
-    return `<span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${color}"></span>${storeLabel}${metricMeta.label}</span>`;
-  }).join('');
+  const storeLegend = visibleStores.length>1 ? `<div class="wm-mini-store-legend">${visibleStores.map((s,si)=>`
+    <span class="wm-chart-legend-item"><span class="wm-mini-legend-line" style="border-top-color:${color};${WM_DASH_PATTERNS[si%WM_DASH_PATTERNS.length]!=='0'?'border-top-style:dashed;':''}"></span>${s}</span>
+  `).join('')}</div>` : '';
 
-  const note = multiMetric ? `<div class="wm-chart-note">※ 지표마다 단위가 달라서, 선의 높이는 0~100%로 환산했어요. 실제 값은 선 끝과 점에 표시/마우스오버로 확인하세요.</div>` : '';
+  return `<div class="wm-mini-card"><div class="wm-mini-title">${metricMeta.label} <span class="wm-unit">(${metricMeta.unit})</span></div>${svg}${storeLegend}</div>`;
+}
 
-  return `${svg}<div class="wm-chart-legend">${legend}</div>${note}`;
+function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
+  const cards = metricKeys.map(key => buildWeeklyMetricLineChart(weeks, visibleStores, key)).join('');
+  return `<div class="wm-mini-grid">${cards}</div>`;
 }
 
 function pctChangeOf(curr, prev){
@@ -1976,7 +1957,7 @@ function renderWeeklyMeeting(){
           `).join('')}
         </div>
       </div>
-      ${visibleStores.length===0 ? `<div class="empty" style="padding:30px 0">브랜드 필터에서 스토어를 선택해주세요.</div>` : `<div class="wm-chart-wrap">${buildWeeklyTrendChart(weeks, visibleStores, weeklyMeetingChartMetrics)}</div>`}
+      ${visibleStores.length===0 ? `<div class="empty" style="padding:30px 0">브랜드 필터에서 스토어를 선택해주세요.</div>` : buildWeeklyTrendChart(weeks, visibleStores, weeklyMeetingChartMetrics)}
     </div>
 
     ${visibleStores.length===0 ? `<div class="card"><div class="empty">브랜드 필터에서 스토어를 선택해주세요.</div></div>` : visibleStores.map(store=>`
@@ -2005,8 +1986,10 @@ function renderWeeklyMeeting(){
                       ? `<div class="row-input wm-input wm-input-readonly mono">${val ? Number(val).toLocaleString('ko-KR') : '-'}</div>`
                       : `<input class="row-input mono wm-input" type="text" inputmode="decimal" placeholder="-" value="${val?Number(val).toLocaleString('ko-KR'):''}" onchange="updateWeeklyMeetingField('${store.replace(/'/g,"\\'")}','${w.start}','${w.end}','${metric.key}',this.value)">`;
                     return `<td>
-                      ${cellInner}
-                      ${pct===null ? '' : `<div class="wm-delta ${pct>=0?'up':'down'}">${pct>=0?'▲':'▼'} ${Math.abs(pct)}%</div>`}
+                      <div class="wm-cell-row">
+                        ${cellInner}
+                        ${pct===null ? '' : `<span class="wm-delta ${pct>=0?'up':'down'}">${pct>=0?'▲':'▼'}${Math.abs(pct)}%</span>`}
+                      </div>
                     </td>`;
                   }).join('')}
                 </tr>
