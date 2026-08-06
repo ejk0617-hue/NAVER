@@ -1517,23 +1517,28 @@ function renderSmartstoreDashboard(){
   const allStores = promo.brands;
   const filterKey = 'smartstoreFilter';
   const visibleStores = allStores.filter(b=>isBrandVisibleIn(filterKey, b));
-  const monthKey = currentYearMonthKey();
-  const today = todayStr();
-  const week = weekRangeOf(today);
-  const daysInThisMonth = new Date(Number(monthKey.slice(0,4)), Number(monthKey.slice(5,7)), 0).getDate();
-  const weeksInThisMonth = daysInThisMonth/7;
+
+  // 목표 달성률은 "일간 매출 입력" 달력이 지금 보여주고 있는 달을 그대로 따라간다
+  // (달력을 7월로 넘기면 목표 달성률도 7월 기준으로 같이 바뀜)
+  const inputView = ensureSmartstoreInputCalView();
+  const iy = inputView.y, im = inputView.m;
+  const inputMonthKey = `${iy}-${String(im).padStart(2,'0')}`;
+  const daysInViewedMonth = new Date(iy, im, 0).getDate();
+  const weeksInViewedMonth = daysInViewedMonth/7;
 
   const dailyRows = ss.daily.filter(r=>!r.store || visibleStores.includes(r.store));
-  const todayTotal = sumDailyAmount(dailyRows.filter(r=>r.date===today));
-  const weekTotal = sumDailyAmount(dailyRows.filter(r=>r.date>=week.start && r.date<=week.end));
-  const monthTotal = sumDailyAmount(dailyRows.filter(r=>r.date && r.date.slice(0,7)===monthKey));
+  const monthTotal = sumDailyAmount(dailyRows.filter(r=>r.date && r.date.slice(0,7)===inputMonthKey));
 
-  const monthlyTargetSum = visibleStores.reduce((s,store)=> s + Number((ss.monthlyTargets[store]||{})[monthKey] || 0), 0);
-  const dailyTarget = daysInThisMonth>0 ? monthlyTargetSum/daysInThisMonth : 0;
-  const weeklyTarget = weeksInThisMonth>0 ? monthlyTargetSum/weeksInThisMonth : 0;
+  const monthlyTargetSum = visibleStores.reduce((s,store)=> s + Number((ss.monthlyTargets[store]||{})[inputMonthKey] || 0), 0);
+  const dailyTarget = daysInViewedMonth>0 ? monthlyTargetSum/daysInViewedMonth : 0;
+  const weeklyTarget = weeksInViewedMonth>0 ? monthlyTargetSum/weeksInViewedMonth : 0;
+  // "일평균 실제 매출"·"주평균 실제 매출" = 보고 있는 달의 누적 매출을 일수/주수로 나눈 값
+  // (지금 보고 있는 달이 실제 이번 달이든 지난달이든 항상 같은 방식으로 계산되어 헷갈리지 않음)
+  const dailyActual = daysInViewedMonth>0 ? monthTotal/daysInViewedMonth : 0;
+  const weeklyActual = weeksInViewedMonth>0 ? monthTotal/weeksInViewedMonth : 0;
 
   const graphGauges = [
-    {label:'주간', actual:weekTotal, target:weeklyTarget},
+    {label:'주간', actual:weeklyActual, target:weeklyTarget},
     {label:'월간', actual:monthTotal, target:monthlyTargetSum},
   ].map(g=>({...g, pct: g.target>0 ? Math.round(g.actual/g.target*100) : null}));
 
@@ -1558,10 +1563,6 @@ function renderSmartstoreDashboard(){
     return `<div class="promo-cal-chip" style="background:${color}22;color:${color}" title="${ev.name}">${ev.manual?'✏️ ':''}${ev.name}</div>`;
   };
 
-  const inputView = ensureSmartstoreInputCalView();
-  const iy = inputView.y, im = inputView.m;
-  const inputMonthKey = `${iy}-${String(im).padStart(2,'0')}`;
-
   return `
     <div class="page-header">
       <div>
@@ -1575,9 +1576,9 @@ function renderSmartstoreDashboard(){
 
     <div class="ss-row2col ss-row2col-narrow">
       <div class="card ss-compact-card">
-        <h2 style="margin:0 0 10px;font-size:14px">🎯 목표 달성률 (${monthKey})</h2>
+        <h2 style="margin:0 0 10px;font-size:14px">🎯 목표 달성률 (${inputMonthKey})</h2>
         ${visibleStores.length===0 ? `<div class="empty" style="padding:10px 0">브랜드 필터에서 스토어를 선택해주세요.</div>` : `
-        <div class="ss-goal-target-line">일 목표액 <b class="mono">${formatWon(Math.round(dailyTarget))}</b> <span class="ss-goal-target-sub">(오늘 ${formatWon(todayTotal)})</span></div>
+        <div class="ss-goal-target-line">일 목표액 <b class="mono">${formatWon(Math.round(dailyTarget))}</b> <span class="ss-goal-target-sub">(일평균 실제 ${formatWon(Math.round(dailyActual))})</span></div>
         <div class="ss-gauge-list">
           ${graphGauges.map(g=>`
             <div class="ss-gauge-row">
@@ -1712,7 +1713,7 @@ function renderSmartstoreDashboard(){
   `;
 }
 /* =========================================================================
-   주간미팅 — 매주 목요일 미팅 기준(전주 목요일~이번주 수요일)으로 스토어별 지표를
+   주간미팅 — 월요일~일요일 기준으로 스토어별 지표를
    주 단위로 입력하고, 한 달치를 나란히 비교하는 표를 보여준다.
    ========================================================================= */
 function ensureWeeklyMeeting(){
@@ -1763,15 +1764,20 @@ function toggleWeeklyMeetingChartMetric(key){
   render();
 }
 const WM_DASH_PATTERNS = ['0', '7,4', '2,3', '9,3,2,3'];
+const WM_METRIC_COLORS = {
+  revenue: '#8B5CF6', profit: '#12805C', aov: '#F0932B', conversionRate: '#0EA5A5',
+  visitors: '#2F6FED', eventSales: '#DB5A9E', subscribers: '#D64545',
+};
 function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
-  const width = 760, height = 220, padL = 70, padR = 45, padT = 20, padB = 34;
+  const width = 760, height = 240, padL = 70, padR = 45, padT = 24, padB = 34;
   const innerW = width - padL - padR;
   const innerH = height - padT - padB;
   const multiMetric = metricKeys.length > 1;
+  const multiStore = visibleStores.length > 1;
 
-  // 스토어 x 지표 조합마다 선(line) 하나씩 만든다
+  // 스토어 x 지표 조합마다 선(line) 하나씩 만든다. 색은 지표별로 고정, 스토어가 여러 개면 선 모양(실선/점선)으로 구분한다.
   const lines = [];
-  visibleStores.forEach(store=>{
+  visibleStores.forEach((store, storeIdx)=>{
     metricKeys.forEach(metricKey=>{
       const raw = weeks.map(w=>{
         if(metricKey==='revenue'){
@@ -1782,7 +1788,7 @@ function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
         const val = entry ? entry[metricKey] : '';
         return (val===''||val===undefined||val===null) ? null : Number(val);
       });
-      lines.push({store, metricKey, raw});
+      lines.push({store, storeIdx, metricKey, raw});
     });
   });
 
@@ -1794,7 +1800,7 @@ function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
   let yMin, yMax;
   if(multiMetric){
     // 지표마다 단위·크기가 다르므로(매출액 vs 전환율 등), 각 선을 자기 안에서 0~100%로 환산해서
-    // 절대값이 아니라 "추이(모양)"를 서로 비교할 수 있게 한다. 실제 값은 점에 마우스오버하면 보인다.
+    // 절대값이 아니라 "추이(모양)"를 서로 비교할 수 있게 한다. 실제 값(원래 단위)은 그래프 위 숫자로 그대로 보여준다.
     lines.forEach(l=>{
       const vals = l.raw.filter(v=>v!==null);
       if(vals.length===0){ l.display = l.raw.map(()=>null); return; }
@@ -1825,27 +1831,30 @@ function buildWeeklyTrendChart(weeks, visibleStores, metricKeys){
   });
 
   lines.forEach(l=>{
-    const color = promoBrandColor(l.store);
-    const dashIdx = metricKeys.indexOf(l.metricKey) % WM_DASH_PATTERNS.length;
+    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
+    const dashIdx = multiStore ? (l.storeIdx % WM_DASH_PATTERNS.length) : 0;
     const dash = WM_DASH_PATTERNS[dashIdx];
     const pts = l.display.map((v,i)=> v===null ? null : `${xOf(i)},${yOf(v)}`).filter(Boolean).join(' ');
-    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
+    if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" ${dash!=='0'?`stroke-dasharray="${dash}"`:''}/>`;
     const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
     l.raw.forEach((rawVal,i)=>{
       if(rawVal===null) return;
-      const label = `${l.store} ${metricMeta.label} ${weeks[i].label}: ${rawVal.toLocaleString('ko-KR')}${metricMeta.unit==='%'?'%':''}`;
-      svg += `<circle cx="${xOf(i)}" cy="${yOf(l.display[i])}" r="3.5" fill="${color}"><title>${label}</title></circle>`;
+      const dy = yOf(l.display[i]);
+      const valueText = metricMeta.unit==='%' ? `${rawVal.toLocaleString('ko-KR')}%` : rawVal.toLocaleString('ko-KR');
+      svg += `<circle cx="${xOf(i)}" cy="${dy}" r="3" fill="${color}"><title>${l.store} ${metricMeta.label} ${weeks[i].label}: ${valueText}</title></circle>`;
+      svg += `<text x="${xOf(i)}" y="${dy-8}" font-size="9" fill="${color}" text-anchor="middle" font-weight="700">${valueText}</text>`;
     });
   });
   svg += `</svg>`;
 
   const legend = lines.map(l=>{
-    const color = promoBrandColor(l.store);
+    const color = WM_METRIC_COLORS[l.metricKey] || '#8B5CF6';
     const metricMeta = WEEKLY_MEETING_METRICS.find(m=>m.key===l.metricKey);
-    return `<span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${color}"></span>${l.store} · ${metricMeta.label}</span>`;
+    const storeLabel = multiStore ? `${l.store} · ` : '';
+    return `<span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${color}"></span>${storeLabel}${metricMeta.label}</span>`;
   }).join('');
 
-  const note = multiMetric ? `<div class="wm-chart-note">※ 지표마다 단위가 달라서, 값을 0~100%로 환산해 추이 모양만 비교할 수 있게 표시했어요. 실제 값은 점에 마우스를 올리면 볼 수 있어요.</div>` : '';
+  const note = multiMetric ? `<div class="wm-chart-note">※ 지표마다 단위가 달라서, 선의 높이는 0~100%로 환산했어요. 점 위의 숫자가 실제 값이에요.</div>` : '';
 
   return `${svg}<div class="wm-chart-legend">${legend}</div>${note}`;
 }
@@ -1858,7 +1867,7 @@ function pctChangeOf(curr, prev){
 }
 
 /* 목요일 시작(전주 목~이번주 수) 기준 주간 구간들을, 지정한 달에 목요일이 포함되는 주만 골라 반환 */
-function thuWedWeeksOfMonth(y, m){
+function monSunWeeksOfMonth(y, m){
   const pad2 = n => String(n).padStart(2,'0');
   const fmt = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
   const flabel = d => `${d.getMonth()+1}/${d.getDate()}`;
@@ -1866,7 +1875,7 @@ function thuWedWeeksOfMonth(y, m){
   const last = new Date(y, m, 0);
   const weeks = [];
   for(let d = new Date(first); d<=last; d.setDate(d.getDate()+1)){
-    if(d.getDay()===4){
+    if(d.getDay()===1){
       const start = new Date(d);
       const end = new Date(d); end.setDate(end.getDate()+6);
       weeks.push({start: fmt(start), end: fmt(end), label: `${flabel(start)}~${flabel(end)}`});
@@ -1916,14 +1925,14 @@ function renderWeeklyMeeting(){
   const filterKey = 'weeklyMeetingFilter';
   const visibleStores = allStores.filter(b=>isBrandVisibleIn(filterKey, b));
   const view = ensureWeeklyMeetingView();
-  const weeks = thuWedWeeksOfMonth(view.y, view.m);
+  const weeks = monSunWeeksOfMonth(view.y, view.m);
 
   return `
     <div class="page-header">
       <div>
         <span class="eyebrow" style="background:#0EA5A522;color:#0EA5A5">주간미팅</span>
         <h1>주간미팅 데이터</h1>
-        <div class="sub">전주 목요일~이번주 수요일 기준으로 한 주씩 입력하면, 한 달 치를 나란히 비교할 수 있어요</div>
+        <div class="sub">이번 주(월~일) 기준으로 한 주씩 입력하면, 한 달 치를 나란히 비교할 수 있어요</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <button class="btn ghost" onclick="weeklyMeetingPrev()" style="color:var(--text-primary)">◀</button>
