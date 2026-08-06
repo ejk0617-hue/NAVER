@@ -185,6 +185,9 @@
   .ss-goal-target-line{font-size:12.5px;color:var(--text-secondary);margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);}
   .ss-daily-trend-wrap{margin-top:14px;padding-top:12px;border-top:1px solid var(--border);}
   .ss-daily-trend-title{font-size:11.5px;font-weight:800;color:var(--text-primary);margin-bottom:6px;}
+  .ss-trend-mode-tabs{display:inline-flex;gap:2px;background:#EEEAF5;border-radius:8px;padding:2px;margin-bottom:8px;}
+  .ss-trend-mode-tab{border:none;background:transparent;padding:4px 10px;border-radius:6px;font-size:10.5px;font-weight:700;color:var(--text-secondary);cursor:pointer;font-family:inherit;}
+  .ss-trend-mode-tab.active{background:#fff;color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.08);}
   .ss-daily-trend-svg{width:100%;height:auto;display:block;overflow:visible;}
   .ss-goal-target-line b{color:#8B5CF6;font-size:14px;margin:0 4px;white-space:nowrap;}
   .ss-goal-target-sub{font-size:11px;}
@@ -1823,19 +1826,34 @@ function formatMiniAxisNumber(v, unit){
 
 /* 매출 대시보드의 "목표 달성률" 카드 아래 남는 공간에 넣는, 그 달 일별 매출 추이 그래프.
    스토어별로 선 색을 다르게 해서 겹쳐 보여준다(브랜드 필터에 쓰는 색과 동일하게 맞춰서 일관되게). */
+let ssDailyTrendMode = 'week'; // 'week' | 'month'
+function switchSsDailyTrendMode(mode){ ssDailyTrendMode = mode; render(); }
+
 function buildDailySalesTrendChart(y, m, visibleStores){
   if(visibleStores.length===0) return '';
   const pad2 = n => String(n).padStart(2,'0');
   const daysInMonth = new Date(y, m, 0).getDate();
   const ss = ensureSmartstore();
 
-  // 보고 있는 달이 지금 실제 이번 달이면 "오늘까지의 최근 7일", 지난 달을 보고 있으면 "그 달의 마지막 7일"
-  const today = new Date();
-  const isRealCurrentMonth = (y===today.getFullYear() && m===today.getMonth()+1);
-  const endDay = isRealCurrentMonth ? Math.min(today.getDate(), daysInMonth) : daysInMonth;
-  const startDay = Math.max(1, endDay-6);
-  const dayList = [];
-  for(let d=startDay; d<=endDay; d++) dayList.push(d);
+  let dayList;
+  if(ssDailyTrendMode==='week'){
+    // 보고 있는 달이 지금 실제 이번 달이면 "오늘까지의 최근 7일", 지난 달을 보고 있으면 "그 달의 마지막 7일"
+    const today = new Date();
+    const isRealCurrentMonth = (y===today.getFullYear() && m===today.getMonth()+1);
+    const endDay = isRealCurrentMonth ? Math.min(today.getDate(), daysInMonth) : daysInMonth;
+    const startDay = Math.max(1, endDay-6);
+    dayList = [];
+    for(let d=startDay; d<=endDay; d++) dayList.push(d);
+  } else {
+    dayList = [];
+    for(let d=1; d<=daysInMonth; d++) dayList.push(d);
+  }
+
+  const toggleBar = `
+    <div class="ss-trend-mode-tabs">
+      <button class="ss-trend-mode-tab ${ssDailyTrendMode==='week'?'active':''}" onclick="switchSsDailyTrendMode('week')">최근 일주일</button>
+      <button class="ss-trend-mode-tab ${ssDailyTrendMode==='month'?'active':''}" onclick="switchSsDailyTrendMode('month')">한달</button>
+    </div>`;
 
   const series = visibleStores.map(store=>{
     return dayList.map(d=>{
@@ -1845,9 +1863,12 @@ function buildDailySalesTrendChart(y, m, visibleStores){
     });
   });
 
+  const title = ssDailyTrendMode==='week' ? '📈 최근 일주일 매출 추이' : '📈 이번 달 매출 추이';
+
   const allVals = series.flat().filter(v=>v!==null);
   if(allVals.length===0){
-    return `<div class="ss-daily-trend-wrap"><div class="ss-daily-trend-title">📈 최근 일주일 매출 추이</div><div class="empty" style="padding:16px 0;font-size:11px">최근 일주일 동안 입력된 매출이 없어요.</div></div>`;
+    const emptyMsg = ssDailyTrendMode==='week' ? '최근 일주일 동안 입력된 매출이 없어요.' : '이번 달 입력된 매출이 아직 없어요.';
+    return `<div class="ss-daily-trend-wrap"><div class="ss-daily-trend-title">${title}</div>${toggleBar}<div class="empty" style="padding:16px 0;font-size:11px">${emptyMsg}</div></div>`;
   }
 
   const width = 380, height = 108, padL = 40, padR = 8, padT = 8, padB = 16;
@@ -1866,7 +1887,10 @@ function buildDailySalesTrendChart(y, m, visibleStores){
     svg += `<line x1="${padL}" y1="${ty.toFixed(1)}" x2="${padL+innerW}" y2="${ty.toFixed(1)}" stroke="#F0F1F4" stroke-width="0.75"/>`;
     svg += `<text x="${padL-5}" y="${(ty+2.5).toFixed(1)}" font-size="7.5" fill="#9AA1AC" text-anchor="end">${formatMiniAxisNumber(t,'원')}</text>`;
   });
+  // 한달 보기는 날짜가 많아서(최대 31개) 라벨을 다 찍으면 겹치니, 며칠 간격으로 골라서 보여준다
+  const labelStep = dayList.length>10 ? Math.ceil(dayList.length/6) : 1;
   dayList.forEach((d,i)=>{
+    if(i % labelStep !== 0 && i !== dayList.length-1) return;
     svg += `<text x="${xOf(i).toFixed(1)}" y="${height-3}" font-size="7.5" fill="#9AA1AC" text-anchor="middle">${d}일</text>`;
   });
 
@@ -1876,7 +1900,7 @@ function buildDailySalesTrendChart(y, m, visibleStores){
     if(pts) svg += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`;
     series[si].forEach((v,i)=>{
       if(v===null) return;
-      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="1.8" fill="${color}"><title>${store} ${m}/${dayList[i]}: ${formatWon(v)}</title></circle>`;
+      svg += `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(v).toFixed(1)}" r="${dayList.length>10?1.2:1.8}" fill="${color}"><title>${store} ${m}/${dayList[i]}: ${formatWon(v)}</title></circle>`;
     });
   });
   svg += `</svg>`;
@@ -1885,7 +1909,7 @@ function buildDailySalesTrendChart(y, m, visibleStores){
     <span class="wm-chart-legend-item"><span class="wm-chart-legend-dot" style="background:${promoBrandColor(s)}"></span>${s}</span>
   `).join('')}</div>` : '';
 
-  return `<div class="ss-daily-trend-wrap"><div class="ss-daily-trend-title">📈 최근 일주일 매출 추이</div>${svg}${legend}</div>`;
+  return `<div class="ss-daily-trend-wrap"><div class="ss-daily-trend-title">${title}</div>${toggleBar}${svg}${legend}</div>`;
 }
 
 /* 지표 하나짜리 작은 꺾은선 그래프. 각자 자기 축(눈금 4~5개)을 가지고 있어서 다른 지표와
