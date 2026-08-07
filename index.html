@@ -1013,7 +1013,7 @@ function exportData(){
   const blob = new Blob([JSON.stringify(state,null,2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const today = new Date().toISOString().slice(0,10);
+  const today = todayStr();
   a.href = url; a.download = `광고비충전관리_백업_${today}.json`;
   a.click();
   URL.revokeObjectURL(url);
@@ -5422,7 +5422,13 @@ function pickItem(sectionKey,val){
   currentPick[sectionKey]=val;
   render();
 }
-function todayStr(){ return new Date().toISOString().slice(0,10); }
+function todayStr(){
+  // new Date().toISOString()은 UTC(세계표준시) 기준이라, 한국 시간 새벽~아침 시간대(UTC로는 아직 전날)에는
+  // "오늘"이 하루 전으로 잘못 계산되는 문제가 있었다. 그래서 브라우저의 로컬 시간(한국 시간) 그대로 계산한다.
+  const d = new Date();
+  const pad2 = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+}
 
 function renderChargeTable(charges, sectionKey){
   if(charges.length===0) return `<div class="empty">등록된 충전 내역이 없습니다. 아래에서 추가해보세요.</div>`;
