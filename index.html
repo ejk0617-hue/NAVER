@@ -221,8 +221,8 @@
   .ss-event-sales-table input{font-size:11.5px !important;padding:4px 6px !important;}
 
   .ss-manual-event-form{margin-top:12px;padding-top:12px;border-top:1px solid var(--border);}
-  .ss-manual-event-add{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:6px;}
-  @media (max-width:700px){ .ss-manual-event-add{grid-template-columns:1fr 1fr; } }
+  .ss-manual-event-add{display:grid;grid-template-columns:1fr .8fr .8fr 1.2fr auto;gap:6px;}
+  @media (max-width:820px){ .ss-manual-event-add{grid-template-columns:1fr 1fr; } }
   .ss-manual-event-add select, .ss-manual-event-add input{font-size:12px !important;padding:6px 8px !important;}
   .ss-manual-event-add .btn{padding:6px 12px;font-size:12px;white-space:nowrap;}
   .ss-manual-event-list{display:flex;flex-direction:column;gap:2px;margin-top:10px;max-height:140px;overflow-y:auto;}
@@ -1348,14 +1348,24 @@ function deleteManualEvent(id){
 }
 function submitManualEvent(){
   const storeEl = document.getElementById('ssManualEventStore');
-  const dateEl = document.getElementById('ssManualEventDate');
+  const startEl = document.getElementById('ssManualEventStartDate');
+  const endEl = document.getElementById('ssManualEventEndDate');
   const nameEl = document.getElementById('ssManualEventName');
   const name = nameEl.value.trim();
   if(!name){ alert('행사명을 입력해주세요.'); return; }
-  if(!dateEl.value){ alert('날짜를 선택해주세요.'); return; }
+  if(!startEl.value){ alert('시작 날짜를 선택해주세요.'); return; }
+  const endDate = endEl.value || startEl.value; // 종료일을 비워두면 시작일과 같은 하루짜리 행사로 처리
+  if(endDate < startEl.value){ alert('종료 날짜가 시작 날짜보다 빠를 수 없어요.'); return; }
   const ss = ensureSmartstore();
-  ss.manualEvents.unshift({id:uid(), store:storeEl.value, date:dateEl.value, name});
+  ss.manualEvents.unshift({id:uid(), store:storeEl.value, startDate:startEl.value, endDate, name});
   saveState(); render();
+  nameEl.value = '';
+}
+/* 예전엔 행사 하루짜리(date 필드)만 저장했었는데, 지금은 시작일~종료일(startDate/endDate)로 저장한다.
+   예전에 저장해둔 하루짜리 행사도 계속 정상적으로 보이도록, 꺼내 쓸 때 그 자리에서 자동으로 맞춰준다. */
+function manualEventRange(e){
+  if(e.startDate) return {start:e.startDate, end:e.endDate||e.startDate};
+  return {start:e.date, end:e.date};
 }
 function currentYearMonthKey(){
   const d = new Date();
@@ -1583,7 +1593,9 @@ function renderSmartstoreDashboard(){
       return s.startDate<=dateStr && s.endDate>=dateStr;
     }).map(s=>({brand:s.brand, name:s.promoName||'(제목 없음)', manual:false}));
     const fromManual = ss.manualEvents.filter(e=>{
-      if(e.date!==dateStr) return false;
+      const range = manualEventRange(e);
+      if(!range.start) return false;
+      if(range.start>dateStr || range.end<dateStr) return false;
       if(e.store && !visibleStores.includes(e.store)) return false;
       return true;
     }).map(e=>({brand:e.store||'', name:e.name||'(제목 없음)', manual:true}));
@@ -1705,20 +1717,24 @@ function renderSmartstoreDashboard(){
               <option value="">스토어 선택</option>
               ${allStores.map(b=>`<option value="${b}">${b}</option>`).join('')}
             </select>
-            <input id="ssManualEventDate" class="row-input" type="date" value="${todayStr()}">
+            <input id="ssManualEventStartDate" class="row-input" type="date" value="${todayStr()}" title="시작 날짜">
+            <input id="ssManualEventEndDate" class="row-input" type="date" value="${todayStr()}" title="종료 날짜">
             <input id="ssManualEventName" class="row-input" style="text-align:left" type="text" placeholder="행사명">
             <button class="btn" onclick="submitManualEvent()">+ 행사 추가</button>
           </div>
           ${ss.manualEvents.filter(e=>!e.store || visibleStores.includes(e.store)).length>0 ? `
           <div class="ss-manual-event-list">
-            ${ss.manualEvents.filter(e=>!e.store || visibleStores.includes(e.store)).map(e=>`
+            ${ss.manualEvents.filter(e=>!e.store || visibleStores.includes(e.store)).map(e=>{
+              const range = manualEventRange(e);
+              const rangeLabel = range.start===range.end ? range.start : `${range.start} ~ ${range.end}`;
+              return `
               <div class="ss-manual-event-row">
-                <span class="mono">${e.date||'-'}</span>
+                <span class="mono">${rangeLabel}</span>
                 <span>${e.store||'(스토어 미지정)'}</span>
                 <span class="ss-manual-event-name">${e.name||'(제목 없음)'}</span>
                 <button class="btn-del" onclick="deleteManualEvent('${e.id}')" title="삭제">✕</button>
               </div>
-            `).join('')}
+            `;}).join('')}
           </div>` : ''}
         </div>
       </div>
