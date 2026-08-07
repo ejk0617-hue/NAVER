@@ -1550,18 +1550,23 @@ function renderSmartstoreDashboard(){
   const iy = inputView.y, im = inputView.m;
   const inputMonthKey = `${iy}-${String(im).padStart(2,'0')}`;
   const daysInViewedMonth = new Date(iy, im, 0).getDate();
-  const weeksInViewedMonth = daysInViewedMonth/7;
 
   const dailyRows = ss.daily.filter(r=>!r.store || visibleStores.includes(r.store));
   const monthTotal = sumDailyAmount(dailyRows.filter(r=>r.date && r.date.slice(0,7)===inputMonthKey));
 
   const monthlyTargetSum = visibleStores.reduce((s,store)=> s + Number((ss.monthlyTargets[store]||{})[inputMonthKey] || 0), 0);
   const dailyTarget = daysInViewedMonth>0 ? monthlyTargetSum/daysInViewedMonth : 0;
-  const weeklyTarget = weeksInViewedMonth>0 ? monthlyTargetSum/weeksInViewedMonth : 0;
-  // "일평균 실제 매출"·"주평균 실제 매출" = 보고 있는 달의 누적 매출을 일수/주수로 나눈 값
-  // (지금 보고 있는 달이 실제 이번 달이든 지난달이든 항상 같은 방식으로 계산되어 헷갈리지 않음)
+  const weeksInMonthForTarget = daysInViewedMonth/7;
+  const weeklyTarget = weeksInMonthForTarget>0 ? monthlyTargetSum/weeksInMonthForTarget : 0;
+  // "일평균 실제 매출" = 보고 있는 달의 누적 매출을 일수로 나눈 평균값
   const dailyActual = daysInViewedMonth>0 ? monthTotal/daysInViewedMonth : 0;
-  const weeklyActual = weeksInViewedMonth>0 ? monthTotal/weeksInViewedMonth : 0;
+  // "주간 실제 매출"은 평균이 아니라, 진짜 그 주(월요일~일요일) 하루하루를 그대로 합산한 값이다.
+  // 지금 보고 있는 달이 실제 이번 달이면 오늘이 속한 주, 지난 달이면 그 달의 마지막 주(월~일) 기준으로 계산한다.
+  const todayObj = new Date();
+  const isRealCurrentMonthForWeek = (iy===todayObj.getFullYear() && im===todayObj.getMonth()+1);
+  const weekRefDate = isRealCurrentMonthForWeek ? todayStr() : `${inputMonthKey}-${String(daysInViewedMonth).padStart(2,'0')}`;
+  const thisWeekRange = weekRangeOf(weekRefDate);
+  const weeklyActual = sumDailyAmount(dailyRows.filter(r=>r.date>=thisWeekRange.start && r.date<=thisWeekRange.end));
 
   const graphGauges = [
     {label:'주간', actual:weeklyActual, target:weeklyTarget},
