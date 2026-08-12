@@ -289,6 +289,14 @@
   .value.negative{color:var(--negative);}
 
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  .promo-stats-table{width:100%;}
+  .promo-stats-table td, .promo-stats-table th{padding:11px 14px;white-space:nowrap;}
+  .promo-stats-table .promo-grade-col{padding-left:14px;padding-right:14px;text-align:center;}
+  .promo-stats-table td.mono, .promo-stats-table td.num{font-size:15.5px;}
+  .promo-stats-row2col{align-items:start;}
+  @media (max-width:1100px){ .promo-stats-row2col{grid-template-columns:1fr;} }
+  .promo-stats-card{padding:16px 18px;}
+  .promo-stats-card h2{margin-bottom:10px;}
   th{text-align:left;font-size:11.5px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.03em;
      padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
   td{padding:9px 10px;border-bottom:1px solid #EEF0F3;vertical-align:middle;overflow:hidden;}
@@ -3585,103 +3593,87 @@ function renderPromoStats(){
       ${PROMO_GRADE_OPTIONS.map(g=>`<div class="stat-box"><div class="label">${g}급 (선정/제안)</div><div class="value mono" style="color:${PROMO_GRADE_COLORS[g].fg};font-size:18px">${totalRow[g]}/${proposedTotalRow[g]}</div></div>`).join('')}
     </div>
 
-    <div class="card">
-      <h2>브랜드별 제안 대비 선정 현황</h2>
-      ${allBrands.length===0 ? `<div class="empty">브랜드 필터에서 브랜드를 선택해주세요.</div>` : `
-      <table>
-        <thead>
-          <tr>
-            <th style="text-align:left">브랜드</th>
-            <th class="num">제안 건수</th>
-            <th class="num">선정 건수</th>
-            <th class="num">선정률</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${allBrands.map((b,i)=>{
-            const pTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+(proposedCounts[b]?proposedCounts[b][g]:0),0);
-            const sTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+(selCounts[b]?selCounts[b][g]:0),0);
-            const rate = pTotal>0 ? Math.round(sTotal/pTotal*100) : null;
-            return `
-            <tr class="${i%2===1?'row-alt':''}">
-              <td style="display:flex;align-items:center;gap:6px;font-weight:700">
-                <span style="width:8px;height:8px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block;flex-shrink:0"></span>${b}
-              </td>
-              <td class="num mono">${pTotal||'-'}</td>
-              <td class="num mono" style="font-weight:800">${sTotal||'-'}</td>
-              <td class="num mono" style="font-weight:800;color:${rate===null?'var(--text-secondary)':(rate>=50?'#12805C':'#D64545')}">${rate===null?'-':rate+'%'}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-        <tfoot>
-          <tr style="border-top:2px solid var(--border)">
-            <td style="font-weight:800">전체 합계</td>
-            <td class="num mono" style="font-weight:800">${proposedGrandTotal||'-'}</td>
-            <td class="num mono" style="font-weight:800">${grandTotal||'-'}</td>
-            <td class="num mono" style="font-weight:800;color:#2F6FED">${overallRate===null?'-':overallRate+'%'}</td>
-          </tr>
-        </tfoot>
-      </table>`}
-    </div>
-
-    <div class="card">
-      <h2>브랜드별 등급 선정 현황</h2>
-      ${allBrands.length===0 ? `<div class="empty">브랜드 필터에서 브랜드를 선택해주세요.</div>` : `
-      <table>
-        <thead>
-          <tr>
-            <th style="text-align:left">브랜드</th>
-            ${PROMO_GRADE_OPTIONS.map(g=>`<th class="num" style="color:${PROMO_GRADE_COLORS[g].fg}">${g}급</th>`).join('')}
-            <th class="num">합계</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${allBrands.map((b,i)=>{
-            const c = selCounts[b] || zero();
-            const rowTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+c[g],0);
-            return `
-            <tr class="${i%2===1?'row-alt':''}">
-              <td style="display:flex;align-items:center;gap:6px;font-weight:700">
-                <span style="width:8px;height:8px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block;flex-shrink:0"></span>${b}
-              </td>
-              ${PROMO_GRADE_OPTIONS.map(g=>`<td class="num mono" style="${c[g]>0?'font-weight:800;color:'+PROMO_GRADE_COLORS[g].fg+';':'color:var(--text-secondary)'}">${c[g]||'-'}</td>`).join('')}
-              <td class="num mono" style="font-weight:800">${rowTotal||'-'}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-        <tfoot>
-          <tr style="border-top:2px solid var(--border)">
-            <td style="font-weight:800">전체 합계</td>
-            ${PROMO_GRADE_OPTIONS.map(g=>`<td class="num mono" style="font-weight:800;color:${PROMO_GRADE_COLORS[g].fg}">${totalRow[g]||'-'}</td>`).join('')}
-            <td class="num mono" style="font-weight:800">${grandTotal||'-'}</td>
-          </tr>
-        </tfoot>
-      </table>`}
-    </div>
-
-    <div class="card">
-      <h2>${y}년 ${m}월 선정 내역</h2>
-      ${selectedList.length===0 ? `<div class="empty">이 달에 선정완료된 프로모션이 없습니다.</div>` : `
-      <table>
-        <thead>
-          <tr>
-            <th style="text-align:left">프로모션명</th>
-            <th style="text-align:left">브랜드</th>
-            <th>등급</th>
-            <th style="text-align:left">기간</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${selectedList.map(({p, sel, grade}, i)=>`
-            <tr class="${i%2===1?'row-alt':''}">
-              <td style="font-weight:600">${p.promoName||'(제목 없음)'}</td>
-              <td>${sel.map(b=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:8px"><span style="width:6px;height:6px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block"></span>${b}</span>`).join('')}</td>
-              <td style="text-align:center">${grade ? `<span class="badge" style="${gradeStyle(grade)}">${grade}</span>` : '-'}</td>
-              <td class="mono" style="font-size:12.5px;color:var(--text-secondary)">${p.periodStart||'-'} ~ ${p.periodEnd||'-'}</td>
+    <div class="ss-row2col promo-stats-row2col">
+      <div class="card promo-stats-card">
+        <h2>브랜드별 제안 대비 선정 현황</h2>
+        ${allBrands.length===0 ? `<div class="empty">브랜드 필터에서 브랜드를 선택해주세요.</div>` : `
+        <div style="overflow-x:auto">
+        <table class="promo-stats-table">
+          <thead>
+            <tr>
+              <th rowspan="2" style="text-align:left;vertical-align:bottom">브랜드</th>
+              <th colspan="5" style="text-align:center;border-left:1px solid var(--border)">제안 건수</th>
+              <th colspan="5" style="text-align:center;border-left:1px solid var(--border)">선정 건수</th>
+              <th rowspan="2" class="num" style="vertical-align:bottom;border-left:1px solid var(--border)">선정률</th>
             </tr>
-          `).join('')}
-        </tbody>
-      </table>`}
+            <tr>
+              ${PROMO_GRADE_OPTIONS.map((g,gi)=>`<th class="num promo-grade-col" style="color:${PROMO_GRADE_COLORS[g].fg};${gi===0?'border-left:1px solid var(--border)':''}">${g}</th>`).join('')}
+              <th class="num promo-grade-col" style="font-weight:800">합계</th>
+              ${PROMO_GRADE_OPTIONS.map((g,gi)=>`<th class="num promo-grade-col" style="color:${PROMO_GRADE_COLORS[g].fg};${gi===0?'border-left:1px solid var(--border)':''}">${g}</th>`).join('')}
+              <th class="num promo-grade-col" style="font-weight:800">합계</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${allBrands.map((b,i)=>{
+              const pc = proposedCounts[b] || zero();
+              const sc = selCounts[b] || zero();
+              const pTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+pc[g],0);
+              const sTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+sc[g],0);
+              const rate = pTotal>0 ? Math.round(sTotal/pTotal*100) : null;
+              const gradeTds = (counts, isFirst) => PROMO_GRADE_OPTIONS.map((g,gi)=>
+                `<td class="num mono promo-grade-col" style="${counts[g]>0?'font-weight:800;color:'+PROMO_GRADE_COLORS[g].fg+';':'color:var(--text-secondary)'}${gi===0&&isFirst?';border-left:1px solid var(--border)':''}">${counts[g]||'-'}</td>`
+              ).join('');
+              return `
+              <tr class="${i%2===1?'row-alt':''}">
+                <td style="display:flex;align-items:center;gap:6px;font-weight:700;white-space:nowrap">
+                  <span style="width:8px;height:8px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block;flex-shrink:0"></span>${b}
+                </td>
+                ${gradeTds(pc, true)}
+                <td class="num mono promo-grade-col" style="font-weight:800">${pTotal||'-'}</td>
+                ${gradeTds(sc, true)}
+                <td class="num mono promo-grade-col" style="font-weight:800">${sTotal||'-'}</td>
+                <td class="num mono" style="font-weight:800;border-left:1px solid var(--border);color:${rate===null?'var(--text-secondary)':(rate>=50?'#12805C':'#D64545')}">${rate===null?'-':rate+'%'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="border-top:2px solid var(--border)">
+              <td style="font-weight:800">전체 합계</td>
+              ${PROMO_GRADE_OPTIONS.map((g,gi)=>`<td class="num mono promo-grade-col" style="font-weight:800;color:${PROMO_GRADE_COLORS[g].fg};${gi===0?'border-left:1px solid var(--border)':''}">${proposedTotalRow[g]||'-'}</td>`).join('')}
+              <td class="num mono promo-grade-col" style="font-weight:800">${proposedGrandTotal||'-'}</td>
+              ${PROMO_GRADE_OPTIONS.map((g,gi)=>`<td class="num mono promo-grade-col" style="font-weight:800;color:${PROMO_GRADE_COLORS[g].fg};${gi===0?'border-left:1px solid var(--border)':''}">${totalRow[g]||'-'}</td>`).join('')}
+              <td class="num mono promo-grade-col" style="font-weight:800">${grandTotal||'-'}</td>
+              <td class="num mono" style="font-weight:800;border-left:1px solid var(--border);color:#2F6FED">${overallRate===null?'-':overallRate+'%'}</td>
+            </tr>
+          </tfoot>
+        </table>
+        </div>`}
+      </div>
+
+      <div class="card promo-stats-card">
+        <h2>${y}년 ${m}월 선정 내역</h2>
+        ${selectedList.length===0 ? `<div class="empty">이 달에 선정완료된 프로모션이 없습니다.</div>` : `
+        <table>
+          <thead>
+            <tr>
+              <th style="text-align:left">프로모션명</th>
+              <th style="text-align:left">브랜드</th>
+              <th>등급</th>
+              <th style="text-align:left">기간</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${selectedList.map(({p, sel, grade}, i)=>`
+              <tr class="${i%2===1?'row-alt':''}">
+                <td style="font-weight:600">${p.promoName||'(제목 없음)'}</td>
+                <td>${sel.map(b=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:8px"><span style="width:6px;height:6px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block"></span>${b}</span>`).join('')}</td>
+                <td style="text-align:center">${grade ? `<span class="badge" style="${gradeStyle(grade)}">${grade}</span>` : '-'}</td>
+                <td class="mono" style="font-size:12.5px;color:var(--text-secondary)">${p.periodStart||'-'} ~ ${p.periodEnd||'-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`}
+      </div>
     </div>
   `;
 }
