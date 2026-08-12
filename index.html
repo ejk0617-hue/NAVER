@@ -454,6 +454,8 @@
   table.sheet-table tbody tr:hover td{background:#FAFBFF;}
   table.sheet-table tbody tr.row-alt td{background:#E7E9EC;}
   table.sheet-table tbody tr.row-alt:hover td{background:#DCDFE3;}
+  table.sheet-table tbody tr.row-ended td{background:#EDEFF1;opacity:.62;}
+  table.sheet-table tbody tr.row-ended:hover td{opacity:.85;}
   .cell-sel{user-select:none;}
   .cell-sel.cell-sel-active{background:#DCE8FF !important;outline:1.5px solid var(--accent);outline-offset:-1.5px;}
   .cell-sel.cell-sel-copied{background:#CDEFDD !important;}
@@ -1788,9 +1790,12 @@ async function handleSmartstoreCalcFile(fileIdx){
     f.parsedRows = dataRows;
     f.headers = cleanHeaders;
     f.fileName = file.name;
-    // 열 이름을 보고 그럴듯한 걸 자동으로 추측해서 미리 골라준다 (틀리면 화면에서 직접 바꾸면 됨)
-    f.codeCol = cleanHeaders.find(h=>/상품\s*번호/.test(h)) || cleanHeaders.find(h=>h==='상품번호') || cleanHeaders[0] || '';
-    f.amountCol = cleanHeaders.find(h=>/총\s*주문\s*금액/.test(h)) || cleanHeaders.find(h=>/주문\s*금액/.test(h)) || cleanHeaders.find(h=>/정산.*금액/.test(h)) || cleanHeaders[1] || '';
+    // 열 이름을 보고 그럴듯한 걸 자동으로 추측해서 미리 골라준다 (틀리면 화면에서 직접 바꾸면 됨).
+    // 예전엔 못 찾으면 그냥 앞/뒤 아무 열이나 대신 골랐는데, 그러다 "주문번호"(16자리 숫자) 같은 게
+    // 금액으로 잘못 골라져서 총액이 억 단위를 훌쩍 넘는 사고가 났었다. 그래서 이제 확실히 못 찾으면
+    // 그냥 비워두고, 사람이 직접 고르게 한다.
+    f.codeCol = cleanHeaders.find(h=>/상품\s*번호/.test(h)) || cleanHeaders.find(h=>h==='상품번호') || '';
+    f.amountCol = cleanHeaders.find(h=>/총\s*주문\s*금액/.test(h)) || cleanHeaders.find(h=>/주문\s*금액/.test(h)) || cleanHeaders.find(h=>/정산.*금액/.test(h)) || '';
     f.dateCol = cleanHeaders.find(h=>/주문\s*일시/.test(h)) || cleanHeaders.find(h=>/결제일/.test(h)) || cleanHeaders.find(h=>/주문일/.test(h)) || cleanHeaders.find(h=>/발송일/.test(h)) || cleanHeaders.find(h=>/구매확정일/.test(h)) || '';
     ssCalcResult = null;
     render();
@@ -1822,6 +1827,29 @@ function resetSmartstoreCalcFile(fileIdx){
   ssCalcResult = null;
   render();
 }
+function resetSmartstoreCalcAll(){
+  if(!confirm('선정리스트 선택, 행사 기간, 선정 상품번호, 업로드한 엑셀 파일까지 전부 지울까요?')) return;
+  ssCalcPickedMonth = '';
+  ssCalcPickedEntryId = '';
+  ssCalcBatchBrand = '';
+  ssCalcBatchStart = '';
+  ssCalcBatchEnd = '';
+  ssCalcBatchResults = null;
+  ssCalcResult = null;
+  ssCalcFiles = [
+    {parsedRows:null, headers:[], codeCol:'', amountCol:'', dateCol:'', fileName:''},
+    {parsedRows:null, headers:[], codeCol:'', amountCol:'', dateCol:'', fileName:''},
+  ];
+  ['ssCalcFile0','ssCalcFile1'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el) el.value = '';
+  });
+  const ss = ensureSmartstore();
+  ss.calcSelectedCodes = '';
+  ss.calcEventStart = '';
+  ss.calcEventEnd = '';
+  saveState(); render();
+}
 /* 엑셀에서 읽어온 날짜값(Date 객체 / 엑셀 시리얼 숫자 / 문자열 등 어떤 형태로 오든)을 "YYYY-MM-DD"로 통일해서 비교할 수 있게 만든다 */
 function normalizeExcelDateToYMD(v){
   if(!v) return '';
@@ -1842,6 +1870,8 @@ function computeCalcForCodes(activeFiles, codes, startDate, endDate){
   let skippedByDate = 0;
   let usedDateFilter = false;
   let skippedDuplicate = 0;
+  let suspiciousRowCount = 0; // 한 줄 금액이 비정상적으로 커서(잘못된 열 선택 의심) 경고할 건수
+  const SUSPICIOUS_ROW_AMOUNT = 30000000; // 주문 한 줄에 3천만원은 일반적인 소매 주문으로는 비정상적으로 큰 값
   const seenOrderKeys = new Set(); // 파일 두 개에 같은 주문이 겹쳐 들어와도 한 번만 세기 위한 안전장치
 
   activeFiles.forEach(f=>{
@@ -1867,9 +1897,10 @@ function computeCalcForCodes(activeFiles, codes, startDate, endDate){
           if(endDate && rowDate>endDate){ skippedByDate++; return; }
         }
       }
-      const amt = sanitizePromoNumber(String(row[f.amountCol]||'0'));
+      const amt = Number(sanitizePromoNumber(String(row[f.amountCol]||'0')))||0;
+      if(amt > SUSPICIOUS_ROW_AMOUNT) suspiciousRowCount++;
       byCode[code].count++;
-      byCode[code].total += Number(amt)||0;
+      byCode[code].total += amt;
       if(!byCode[code].name && nameCol) byCode[code].name = String(row[nameCol]||'');
     });
   });
@@ -1877,7 +1908,7 @@ function computeCalcForCodes(activeFiles, codes, startDate, endDate){
   const rows = codes.map(c=>byCode[c]);
   const grandTotal = rows.reduce((s,r)=>s+r.total,0);
   const matchedCount = rows.reduce((s,r)=>s+r.count,0);
-  return {rows, grandTotal, matchedCount, usedDateFilter, skippedByDate, skippedDuplicate, fileCount:activeFiles.length};
+  return {rows, grandTotal, matchedCount, usedDateFilter, skippedByDate, skippedDuplicate, suspiciousRowCount, fileCount:activeFiles.length};
 }
 function runSmartstoreCalc(){
   const activeFiles = ssCalcFiles.filter(f=>f.parsedRows);
@@ -1974,14 +2005,16 @@ function renderSsCalcFileBlock(fileIdx){
       ${f.parsedRows ? `
         <div class="ssc-colpick-row">
           <div class="field">
-            <label>상품번호 열</label>
-            <select class="row-input ssc-left" onchange="updateSsCalcCol(${fileIdx},'codeCol',this.value)">
+            <label>상품번호 열${f.codeCol?'':' <span style="color:var(--negative)">(선택 필요)</span>'}</label>
+            <select class="row-input ssc-left" style="${f.codeCol?'':'border-color:var(--negative)'}" onchange="updateSsCalcCol(${fileIdx},'codeCol',this.value)">
+              <option value="" ${f.codeCol?'':'selected'}>선택해주세요</option>
               ${f.headers.map(h=>`<option value="${h}" ${h===f.codeCol?'selected':''}>${h}</option>`).join('')}
             </select>
           </div>
           <div class="field">
-            <label>주문금액 열</label>
-            <select class="row-input ssc-left" onchange="updateSsCalcCol(${fileIdx},'amountCol',this.value)">
+            <label>주문금액 열${f.amountCol?'':' <span style="color:var(--negative)">(선택 필요)</span>'}</label>
+            <select class="row-input ssc-left" style="${f.amountCol?'':'border-color:var(--negative)'}" onchange="updateSsCalcCol(${fileIdx},'amountCol',this.value)">
+              <option value="" ${f.amountCol?'':'selected'}>선택해주세요</option>
               ${f.headers.map(h=>`<option value="${h}" ${h===f.amountCol?'selected':''}>${h}</option>`).join('')}
             </select>
           </div>
@@ -1993,6 +2026,7 @@ function renderSsCalcFileBlock(fileIdx){
             </select>
           </div>
         </div>
+        ${!f.codeCol || !f.amountCol ? `<div class="helptext" style="margin-top:6px;color:var(--negative)">⚠ 이 파일에서 자동으로 못 찾은 열이 있어요. 위에서 직접 골라주세요. (금액이 될만한 열이 안 보이면, 이 파일엔 매출 정보가 없는 파일일 수 있어요 — 그럴 땐 지우고 다른 파일을 올려주세요)</div>` : ''}
       ` : ''}
     </div>
   `;
@@ -2017,6 +2051,7 @@ function renderSmartstoreCalc(){
         <h1>매출계산기</h1>
         <div class="sub">스마트스토어에서 다운받은 주문 엑셀에서, 행사 기간 · 선정 상품번호에 해당하는 주문만 걸러서 매출을 계산해요</div>
       </div>
+      <button class="btn ghost" style="color:var(--negative)" onclick="resetSmartstoreCalcAll()">🗑 전체 초기화</button>
     </div>
 
     ${renderBrandFilterBar(filterKey, promo.brands)}
@@ -2090,6 +2125,7 @@ function renderSmartstoreCalc(){
       <div class="helptext" style="margin-top:4px">📄 파일 ${ssCalcResult.fileCount}개의 금액을 합산했어요.</div>
       ${ssCalcResult.usedDateFilter ? `<div class="helptext" style="margin-top:4px;color:#12805C">📅 기간 필터 적용됨 — 행사 기간 밖의 주문 ${ssCalcResult.skippedByDate}건은 계산에서 제외했어요.</div>` : ''}
       ${ssCalcResult.skippedDuplicate>0 ? `<div class="helptext" style="margin-top:4px;color:#2F6FED">🔁 두 파일에 겹쳐서 들어있던 주문 ${ssCalcResult.skippedDuplicate}건은 한 번만 계산했어요(이중 계산 방지).</div>` : ''}
+      ${ssCalcResult.suspiciousRowCount>0 ? `<div class="helptext" style="margin-top:4px;color:var(--negative);font-weight:700">🚨 주문 한 건당 금액이 3천만원을 넘는 게 ${ssCalcResult.suspiciousRowCount}건 있어요 — "주문금액 열"이 잘못 선택됐을 가능성이 높아요. 위에서 열을 다시 확인해주세요.</div>` : ''}
       <div class="stat-grid" style="margin-top:14px">
         <div class="stat-box"><div class="label">선정 상품 수</div><div class="value mono">${ssCalcResult.rows.length}개</div></div>
         <div class="stat-box"><div class="label">매칭된 주문 건수</div><div class="value mono">${ssCalcResult.matchedCount}건</div></div>
@@ -2154,6 +2190,7 @@ function renderSmartstoreCalc(){
             </div>
             ${r.usedDateFilter ? `<div class="helptext" style="margin-top:6px;color:#12805C">📅 이 행사 기간(${r.startDate}~${r.endDate}) 밖의 주문 ${r.skippedByDate}건은 제외했어요.</div>` : ''}
             ${r.skippedDuplicate>0 ? `<div class="helptext" style="margin-top:4px;color:#2F6FED">🔁 파일 간 중복 주문 ${r.skippedDuplicate}건은 한 번만 계산했어요.</div>` : ''}
+            ${r.suspiciousRowCount>0 ? `<div class="helptext" style="margin-top:4px;color:var(--negative);font-weight:700">🚨 주문 한 건당 금액이 3천만원을 넘는 게 ${r.suspiciousRowCount}건 있어요 — "주문금액 열"이 잘못 선택됐을 가능성이 높아요.</div>` : ''}
             <table class="ssc-result-table" style="margin-top:10px">
               <thead><tr><th style="text-align:left">상품번호</th><th style="text-align:left">상품명</th><th class="num">주문건수</th><th class="num">총 주문금액</th></tr></thead>
               <tbody>
@@ -3957,7 +3994,7 @@ function toggleChecklistField(id, field){
   saveState(); render();
 }
 
-const CHECKLIST_COL_DEFAULTS = [22,150,100,100,96, 76,90,76,64,76,64,72,76,64, 52, 30];
+const CHECKLIST_COL_DEFAULTS = [22,150,100,100,96, 76,90,76,64,76,64,72,76,64, 52, 30, 56];
 /* ---- 셋팅도우미 팝업: 셋팅 리스트의 프로모션명 옆 🔧 버튼으로 열림 ---- */
 let settingHelperOpenId = null; // 화면 전용 상태 — 현재 열려있는 셋팅 체크리스트 항목 id
 function openSettingHelper(checklistId){
@@ -4073,7 +4110,7 @@ function renderSettingHelperModal(){
 
 function renderPromoSettings(){
   const promo = ensurePromotion();
-  const colLabels = ['','프로모션명','브랜드','담당자','셋팅기한', ...CHECKLIST_STATUS_FIELDS.map(f=>f.label), '캡쳐',''];
+  const colLabels = ['','프로모션명','브랜드','담당자','셋팅기한', ...CHECKLIST_STATUS_FIELDS.map(f=>f.label), '캡쳐','','종료'];
   const brandsInUse = brandsInUseFor(promo.checklist);
   const visibleChecklist = promo.checklist.filter(c=> !c.brand || isBrandVisibleIn('checklistFilter', c.brand));
 
@@ -4099,7 +4136,7 @@ function renderPromoSettings(){
           ${visibleChecklist.length===0 ? `<tr><td colspan="${colLabels.length}"><div class="empty">${promo.checklist.length===0 ? '등록된 체크리스트 항목이 없습니다. 제안리스트에서 "선정완료"를 체크하거나, 위 버튼으로 직접 추가해보세요.' : '필터 조건에 맞는 항목이 없습니다.'}</div></td></tr>` : visibleChecklist.map((c,idx)=>{
             const brandOptions = promoOptionSet(promo.brands, c.brand);
             const ownerOptions = promoOptionSet(promo.owners, c.owner);
-            const rowClass = idx%2===1 ? 'row-alt' : '';
+            const rowClass = c.ended ? 'row-ended' : '';
             return `
             <tr class="${rowClass}" ondragover="sheetDragOverRow(event)" ondragleave="sheetDragLeaveRow(event)" ondrop="sheetDropRow(event,'checklist','${c.id}')">
               <td class="sheet-drag-handle" draggable="true" ondragstart="sheetDragStart(event,'checklist','${c.id}')" ondragend="sheetDragEnd()" title="드래그해서 순서 변경">⠿</td>
@@ -4131,6 +4168,7 @@ function renderPromoSettings(){
               </td>`).join('')}
               <td style="text-align:center"><input type="checkbox" ${c.capture?'checked':''} onclick="toggleChecklistField('${c.id}','capture')"></td>
               <td><button class="btn-del" onclick="deleteChecklistEntry('${c.id}')" title="삭제">✕</button></td>
+              <td style="text-align:center"><input type="checkbox" ${c.ended?'checked':''} onclick="toggleChecklistField('${c.id}','ended')" title="종료 처리하면 회색으로 표시돼요"></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -5207,8 +5245,8 @@ function deleteProposal(id){
   pushCalendarEvent('selected', id);
 }
 
-const PROPOSALS_COL_DEFAULTS = [22,110,56,194,150,140,60,104,60,120,66,30];
-const PROPOSALS_COL_LABELS = ['','제안마감일','제안요일','프로모션 기간','브랜드','프로모션명','등급','제안담당자','제안완료','선정완료','관련링크',''];
+const PROPOSALS_COL_DEFAULTS = [22,110,56,194,150,140,60,104,60,120,66,30,56];
+const PROPOSALS_COL_LABELS = ['','제안마감일','제안요일','프로모션 기간','브랜드','프로모션명','등급','제안담당자','제안완료','선정완료','관련링크','','종료'];
 function renderProposalSheet(rows, opts){
   const promo = ensurePromotion();
   return `
@@ -5221,11 +5259,12 @@ function renderProposalSheet(rows, opts){
           </tr>
         </thead>
         <tbody>
-          ${rows.length===0 ? `<tr><td colspan="12"><div class="empty">${opts.emptyText}</div></td></tr>` : rows.map((p,idx)=>{
+          ${rows.length===0 ? `<tr><td colspan="13"><div class="empty">${opts.emptyText}</div></td></tr>` : rows.map((p,idx)=>{
             const pBrands = p.brands || [];
             const addableBrands = promoOptionSet(promo.brands, '').filter(b=>b && !pBrands.includes(b));
             const ownerOptions = promoOptionSet(promo.owners, p.owner);
-            const rowClass = idx%2===1 ? 'row-alt' : '';
+            const allBrandsSelected = pBrands.length>0 && pBrands.every(b=>isProposalBrandSelected(p,b));
+            const rowClass = (p.ended || allBrandsSelected) ? 'row-ended' : '';
             return `
             <tr class="${rowClass}" ondragover="sheetDragOverRow(event)" ondragleave="sheetDragLeaveRow(event)" ondrop="sheetDropRow(event,'proposals','${p.id}')">
               <td class="sheet-drag-handle" draggable="true" ondragstart="sheetDragStart(event,'proposals','${p.id}')" ondragend="sheetDragEnd()" title="드래그해서 순서 변경">⠿</td>
@@ -5288,6 +5327,7 @@ function renderProposalSheet(rows, opts){
                 </div>
               </td>
               <td><button class="btn-del" onclick="deleteProposal('${p.id}')" title="삭제">✕</button></td>
+              <td style="text-align:center"><input type="checkbox" ${p.ended?'checked':''} onclick="toggleProposalField('${p.id}','ended')" title="종료 처리하면 대시보드의 제안 임박건에서 빠져요"></td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -5999,6 +6039,7 @@ function renderDashboard(){
   const promoDeadlineImminent = [];
   ensurePromotion().proposals.forEach(p=>{
     if(p.proposeDone) return;
+    if(p.ended) return;
     if(!p.proposeDate) return;
     const bd = businessDaysUntil(p.proposeDate);
     if(bd===null) return;
