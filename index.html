@@ -1711,6 +1711,7 @@ function applyCalcResultToSettings(){
     return;
   }
   matched.eventSales = String(Math.round(ssCalcResult.grandTotal));
+  touch(matched);
   saveState(); render();
   alert(`"${matched.promoName||'(제목 없음)'}_${matched.brand||''}" 셋팅 항목에 행사매출 ${formatWon(ssCalcResult.grandTotal)}을 반영했어요.`);
 }
@@ -1810,14 +1811,25 @@ function runSmartstoreCalc(){
   wanted.forEach(c=>{ byCode[c] = {code:c, count:0, total:0, name:''}; });
   let skippedByDate = 0;
   let usedDateFilter = false;
+  let skippedDuplicate = 0;
+  const seenOrderKeys = new Set(); // 파일 두 개에 같은 주문이 겹쳐 들어와도 한 번만 세기 위한 안전장치
 
   activeFiles.forEach(f=>{
     const nameCol = f.headers.find(h=>/상품명/.test(h));
+    const orderNoCol = f.headers.find(h=>/상품주문번호/.test(h));
     const useDateFilter = !!(f.dateCol && (startDate || endDate));
     if(useDateFilter) usedDateFilter = true;
     f.parsedRows.forEach(row=>{
       const code = String(row[f.codeCol]||'').trim();
       if(!wantedSet.has(code)) return;
+      if(orderNoCol){
+        const orderNo = String(row[orderNoCol]||'').trim();
+        if(orderNo){
+          const dupKey = code+'__'+orderNo;
+          if(seenOrderKeys.has(dupKey)){ skippedDuplicate++; return; }
+          seenOrderKeys.add(dupKey);
+        }
+      }
       if(useDateFilter){
         const rowDate = normalizeExcelDateToYMD(row[f.dateCol]);
         if(rowDate){
@@ -1835,7 +1847,7 @@ function runSmartstoreCalc(){
   const resultRows = wanted.map(c=>byCode[c]);
   const grandTotal = resultRows.reduce((s,r)=>s+r.total,0);
   const matchedCount = resultRows.reduce((s,r)=>s+r.count,0);
-  ssCalcResult = {rows:resultRows, grandTotal, matchedCount, usedDateFilter, skippedByDate, fileCount:activeFiles.length};
+  ssCalcResult = {rows:resultRows, grandTotal, matchedCount, usedDateFilter, skippedByDate, skippedDuplicate, fileCount:activeFiles.length};
   render();
 }
 
@@ -1970,6 +1982,7 @@ function renderSmartstoreCalc(){
       <div class="helptext" style="margin-top:4px">위 1번에서 불러왔던 행사의 "셋팅 &gt; 셋팅도우미" 행사매출 칸에 이 합계를 채워 넣어요. 통계 페이지의 선정 내역에도 같이 표시돼요.</div>
       <div class="helptext" style="margin-top:4px">📄 파일 ${ssCalcResult.fileCount}개의 금액을 합산했어요.</div>
       ${ssCalcResult.usedDateFilter ? `<div class="helptext" style="margin-top:4px;color:#12805C">📅 기간 필터 적용됨 — 행사 기간 밖의 주문 ${ssCalcResult.skippedByDate}건은 계산에서 제외했어요.</div>` : ''}
+      ${ssCalcResult.skippedDuplicate>0 ? `<div class="helptext" style="margin-top:4px;color:#2F6FED">🔁 두 파일에 겹쳐서 들어있던 주문 ${ssCalcResult.skippedDuplicate}건은 한 번만 계산했어요(이중 계산 방지).</div>` : ''}
       <div class="stat-grid" style="margin-top:14px">
         <div class="stat-box"><div class="label">선정 상품 수</div><div class="value mono">${ssCalcResult.rows.length}개</div></div>
         <div class="stat-box"><div class="label">매칭된 주문 건수</div><div class="value mono">${ssCalcResult.matchedCount}건</div></div>
@@ -3796,6 +3809,7 @@ function updateChecklistEventSales(checklistId, value){
   const row = promo.checklist.find(c=>c.id===checklistId);
   if(!row) return;
   row.eventSales = sanitizePromoNumber(value);
+  touch(row);
   saveState(); render();
 }
 function shortMD(dateStr){
