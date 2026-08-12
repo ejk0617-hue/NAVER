@@ -322,6 +322,7 @@
   .ssc-colpick-row{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
   .ssc-result-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;}
   .ssc-result-table{margin-top:14px;}
+  .ssc-batch-result-card{border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:14px;background:#fff;}
   th{text-align:left;font-size:11.5px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.03em;
      padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
   td{padding:9px 10px;border-bottom:1px solid #EEF0F3;vertical-align:middle;overflow:hidden;}
@@ -1832,22 +1833,12 @@ function normalizeExcelDateToYMD(v){
   if(m) return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
   return '';
 }
-function runSmartstoreCalc(){
-  const activeFiles = ssCalcFiles.filter(f=>f.parsedRows);
-  if(activeFiles.length===0){ alert('먼저 엑셀 파일을 하나 이상 선택해주세요.'); return; }
-  for(const f of activeFiles){
-    if(!f.codeCol || !f.amountCol){ alert(`"${f.fileName}" 파일의 상품번호 열과 주문금액 열을 선택해주세요.`); return; }
-  }
-  const raw = (ensureSmartstore().calcSelectedCodes||'').trim();
-  if(!raw){ alert('행사에 선정된 상품번호를 입력해주세요.'); return; }
-  const wanted = Array.from(new Set(raw.split(/[\n,]/).map(s=>s.trim()).filter(Boolean)));
-  const wantedSet = new Set(wanted);
-  const ss = ensureSmartstore();
-  const startDate = (ss.calcEventStart||'').trim();
-  const endDate = (ss.calcEventEnd||'').trim();
-
+/* 파일들·원하는 상품코드 목록·기간을 받아서 상품별 합계를 계산하는 핵심 로직.
+   단일 행사 계산과, 아래의 "브랜드+기간 일괄 조회"(여러 행사를 한 번에) 둘 다 이 함수를 같이 쓴다. */
+function computeCalcForCodes(activeFiles, codes, startDate, endDate){
+  const wantedSet = new Set(codes);
   const byCode = {};
-  wanted.forEach(c=>{ byCode[c] = {code:c, count:0, total:0, name:''}; });
+  codes.forEach(c=>{ byCode[c] = {code:c, count:0, total:0, name:''}; });
   let skippedByDate = 0;
   let usedDateFilter = false;
   let skippedDuplicate = 0;
@@ -1883,11 +1874,88 @@ function runSmartstoreCalc(){
     });
   });
 
-  const resultRows = wanted.map(c=>byCode[c]);
-  const grandTotal = resultRows.reduce((s,r)=>s+r.total,0);
-  const matchedCount = resultRows.reduce((s,r)=>s+r.count,0);
-  ssCalcResult = {rows:resultRows, grandTotal, matchedCount, usedDateFilter, skippedByDate, skippedDuplicate, fileCount:activeFiles.length};
+  const rows = codes.map(c=>byCode[c]);
+  const grandTotal = rows.reduce((s,r)=>s+r.total,0);
+  const matchedCount = rows.reduce((s,r)=>s+r.count,0);
+  return {rows, grandTotal, matchedCount, usedDateFilter, skippedByDate, skippedDuplicate, fileCount:activeFiles.length};
+}
+function runSmartstoreCalc(){
+  const activeFiles = ssCalcFiles.filter(f=>f.parsedRows);
+  if(activeFiles.length===0){ alert('먼저 엑셀 파일을 하나 이상 선택해주세요.'); return; }
+  for(const f of activeFiles){
+    if(!f.codeCol || !f.amountCol){ alert(`"${f.fileName}" 파일의 상품번호 열과 주문금액 열을 선택해주세요.`); return; }
+  }
+  const raw = (ensureSmartstore().calcSelectedCodes||'').trim();
+  if(!raw){ alert('행사에 선정된 상품번호를 입력해주세요.'); return; }
+  const wanted = Array.from(new Set(raw.split(/[\n,]/).map(s=>s.trim()).filter(Boolean)));
+  const ss = ensureSmartstore();
+  const startDate = (ss.calcEventStart||'').trim();
+  const endDate = (ss.calcEventEnd||'').trim();
+  ssCalcResult = computeCalcForCodes(activeFiles, wanted, startDate, endDate);
   render();
+}
+
+/* ---- 브랜드 + 조회 기간만으로, 그 기간에 걸치는 모든 행사(선정리스트 항목)를 한 번에 계산 ---- */
+let ssCalcBatchBrand = '';
+let ssCalcBatchStart = '';
+let ssCalcBatchEnd = '';
+let ssCalcBatchResults = null;
+function updateSsCalcBatchBrand(v){ ssCalcBatchBrand=v; render(); }
+function updateSsCalcBatchStart(v){ ssCalcBatchStart=v; render(); }
+function updateSsCalcBatchEnd(v){ ssCalcBatchEnd=v; render(); }
+function runSmartstoreCalcBatch(){
+  const activeFiles = ssCalcFiles.filter(f=>f.parsedRows);
+  if(activeFiles.length===0){ alert('먼저 엑셀 파일을 하나 이상 선택해주세요.'); return; }
+  for(const f of activeFiles){
+    if(!f.codeCol || !f.amountCol){ alert(`"${f.fileName}" 파일의 상품번호 열과 주문금액 열을 선택해주세요.`); return; }
+  }
+  if(!ssCalcBatchBrand){ alert('브랜드를 선택해주세요.'); return; }
+  if(!ssCalcBatchStart || !ssCalcBatchEnd){ alert('조회 기간(시작일·종료일)을 입력해주세요.'); return; }
+
+  const promo = ensurePromotion();
+  // 그 브랜드의, 조회 기간과 겹치는 모든 선정리스트 항목(행사)을 찾는다
+  const matches = promo.selections.filter(s=>{
+    if((s.brand||'')!==ssCalcBatchBrand) return false;
+    if(!s.startDate || !s.endDate) return false;
+    return s.startDate<=ssCalcBatchEnd && s.endDate>=ssCalcBatchStart; // 기간이 겹치는지 판정
+  }).sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''));
+
+  if(matches.length===0){
+    alert('그 브랜드·기간에 해당하는 행사(선정리스트 항목)를 찾지 못했어요.');
+    ssCalcBatchResults = null;
+    render();
+    return;
+  }
+
+  ssCalcBatchResults = matches.map(sel=>{
+    const codes = Array.from(new Set((sel.products||[]).map(p=>String(p.code||'').trim()).filter(Boolean)));
+    const calc = computeCalcForCodes(activeFiles, codes, sel.startDate||'', sel.endDate||'');
+    return Object.assign({selectionId: sel.id, promoName: sel.promoName||'(제목 없음)', brand: sel.brand||'', startDate: sel.startDate||'', endDate: sel.endDate||''}, calc);
+  });
+  render();
+}
+function applyBatchResultToSettings(selectionId){
+  if(!ssCalcBatchResults) return;
+  const result = ssCalcBatchResults.find(r=>r.selectionId===selectionId);
+  if(!result) return;
+  const promo = ensurePromotion();
+  const sel = promo.selections.find(s=>s.id===selectionId);
+  if(!sel){ alert('선정리스트 항목을 찾을 수 없어요.'); return; }
+  const matched = promo.checklist.find(c=>{
+    if(sel.sourceProposalId){
+      return c.sourceProposalId===sel.sourceProposalId && (c.brand||'')===(sel.brand||'');
+    }
+    return (c.promoName||'')===(sel.promoName||'') && (c.brand||'')===(sel.brand||'') &&
+           (c.startDate||'')===(sel.startDate||'') && (c.endDate||'')===(sel.endDate||'');
+  });
+  if(!matched){
+    alert(`"${sel.promoName||'(제목 없음)'}"와 연결된 "셋팅" 항목을 찾지 못했어요. 프로모션 > 셋팅에 이 행사가 등록되어 있는지 확인해주세요.`);
+    return;
+  }
+  matched.eventSales = String(Math.round(result.grandTotal));
+  touch(matched);
+  saveState(); render();
+  alert(`"${matched.promoName||'(제목 없음)'}_${matched.brand||''}" 셋팅 항목에 행사매출 ${formatWon(result.grandTotal)}을 반영했어요.`);
 }
 
 function renderSsCalcFileBlock(fileIdx){
@@ -2048,6 +2116,61 @@ function renderSmartstoreCalc(){
       </table>
       ${ssCalcResult.rows.some(r=>r.count===0) ? `<div class="helptext" style="margin-top:10px;color:var(--negative)">⚠ 빨간 글씨로 표시된 상품번호는 (기간 안에서) 매칭되는 주문을 찾지 못했어요. 상품번호·기간·선택한 열이 맞는지 확인해주세요.</div>` : ''}
     </div>` : ''}
+
+    <div class="card ssc-card" style="border-color:#F0932B55;background:#FFFAF3">
+      <div class="ssc-step-title"><span class="ssc-step-num" style="background:#2F6FED">↺</span>또는: 브랜드 · 기간만으로 한 번에 조회</div>
+      <div class="helptext" style="margin-top:0">행사를 하나씩 안 골라도, 브랜드와 조회 기간만 넣으면 그 기간에 걸리는 모든 행사를 찾아서 각각 매출을 계산해줘요. 결과를 하나씩 확인하고 각각 반영할 수 있어요.</div>
+      <div class="ssc-date-row">
+        <div class="field">
+          <label>브랜드</label>
+          <select class="row-input ssc-left" onchange="updateSsCalcBatchBrand(this.value)">
+            <option value="">선택해주세요</option>
+            ${promo.brands.map(b=>`<option value="${b}" ${b===ssCalcBatchBrand?'selected':''}>${b}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>조회 시작일</label>
+          <input type="date" class="row-input ssc-left" value="${ssCalcBatchStart}" onchange="updateSsCalcBatchStart(this.value)">
+        </div>
+        <div class="field">
+          <label>조회 종료일</label>
+          <input type="date" class="row-input ssc-left" value="${ssCalcBatchEnd}" onchange="updateSsCalcBatchEnd(this.value)">
+        </div>
+      </div>
+      <button class="btn" onclick="runSmartstoreCalcBatch()">📊 기간 내 행사 전체 계산하기</button>
+
+      ${ssCalcBatchResults ? `
+        <div class="helptext" style="margin-top:16px">총 ${ssCalcBatchResults.length}개 행사를 찾았어요. 각 행사의 기간(자기 시작일~종료일)에 맞춰 따로따로 계산했어요.</div>
+        ${ssCalcBatchResults.map((r,ri)=>`
+          <div class="ssc-batch-result-card">
+            <div class="ssc-result-head">
+              <div style="font-weight:800;font-size:13.5px">${r.promoName} <span style="font-weight:400;color:var(--text-secondary);font-size:12px">· ${r.brand} · ${r.startDate}~${r.endDate}</span></div>
+              <button class="btn" style="padding:7px 14px;font-size:12.5px" onclick="applyBatchResultToSettings('${r.selectionId}')">✅ 이 행사에 반영</button>
+            </div>
+            <div class="stat-grid" style="margin-top:10px">
+              <div class="stat-box"><div class="label">선정 상품 수</div><div class="value mono">${r.rows.length}개</div></div>
+              <div class="stat-box"><div class="label">매칭된 주문 건수</div><div class="value mono">${r.matchedCount}건</div></div>
+              <div class="stat-box"><div class="label">총 주문금액 합계</div><div class="value mono" style="color:#F0932B">${formatWon(r.grandTotal)}</div></div>
+            </div>
+            ${r.usedDateFilter ? `<div class="helptext" style="margin-top:6px;color:#12805C">📅 이 행사 기간(${r.startDate}~${r.endDate}) 밖의 주문 ${r.skippedByDate}건은 제외했어요.</div>` : ''}
+            ${r.skippedDuplicate>0 ? `<div class="helptext" style="margin-top:4px;color:#2F6FED">🔁 파일 간 중복 주문 ${r.skippedDuplicate}건은 한 번만 계산했어요.</div>` : ''}
+            <table class="ssc-result-table" style="margin-top:10px">
+              <thead><tr><th style="text-align:left">상품번호</th><th style="text-align:left">상품명</th><th class="num">주문건수</th><th class="num">총 주문금액</th></tr></thead>
+              <tbody>
+                ${r.rows.map((row,i)=>`
+                  <tr class="${i%2===1?'row-alt':''}">
+                    <td class="mono">${row.code}</td>
+                    <td>${row.name||'-'}</td>
+                    <td class="num mono" style="${row.count===0?'color:var(--negative);font-weight:700':''}">${row.count}</td>
+                    <td class="num mono" style="font-weight:700">${formatWon(row.total)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `).join('')}
+      ` : ''}
+    </div>
   `;
 }
 
