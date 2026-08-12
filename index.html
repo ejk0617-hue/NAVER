@@ -305,17 +305,21 @@
   .ssc-card{padding:20px 22px;}
   .ssc-step-title{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:800;color:var(--text-primary);margin-bottom:4px;}
   .ssc-step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#F0932B;color:#fff;font-size:12px;font-weight:800;flex-shrink:0;}
-  .ssc-picker-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:12px;}
-  .ssc-picker-row .btn{margin-bottom:1px;}
+  .ssc-left{text-align:left !important;}
+  .ssc-picker-col{display:flex;flex-direction:column;gap:12px;margin-top:12px;}
   .ssc-date-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;margin-bottom:16px;padding-bottom:16px;border-bottom:1px dashed var(--border);}
   .ssc-textarea-label{display:block;font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px;}
-  .ssc-textarea{width:100%;min-height:110px;text-align:left;font-family:inherit;resize:vertical;}
+  .ssc-textarea{width:100%;min-height:110px;font-family:inherit;resize:vertical;}
   .ssc-warn{font-size:12.5px;color:#B4790A;background:#FFF3D9;border-radius:8px;padding:8px 12px;margin-top:10px;}
-  .ssc-file-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;}
-  .ssc-file-btn{display:inline-flex;align-items:center;gap:6px;background:#F0932B;color:#fff;padding:10px 18px;border-radius:12px;font-size:13.5px;font-weight:700;cursor:pointer;}
+  .ssc-files-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px;}
+  @media (max-width:900px){ .ssc-files-grid{grid-template-columns:1fr;} }
+  .ssc-file-block{border:1px solid var(--border);border-radius:12px;padding:14px;}
+  .ssc-file-block-title{font-size:12px;font-weight:800;color:#F0932B;margin-bottom:10px;}
+  .ssc-file-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .ssc-file-btn{display:inline-flex;align-items:center;gap:6px;background:#F0932B;color:#fff;padding:9px 16px;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
   .ssc-file-btn:hover{background:#D97F1D;}
-  .ssc-file-name{font-size:13px;color:var(--text-secondary);}
-  .ssc-colpick-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px;}
+  .ssc-file-name{font-size:12.5px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ssc-colpick-row{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
   .ssc-result-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;}
   .ssc-result-table{margin-top:14px;}
   th{text-align:left;font-size:11.5px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.03em;
@@ -1653,9 +1657,15 @@ function renderSmartstoreBrandFilter(){
 /* ---------- 매출계산기: 스마트스토어 주문 엑셀에서 행사 선정 상품번호만 골라 상품별 합계를 계산 ----------
    파일 자체와 파싱 결과는 저장할 필요가 없는(다시 열면 새로 올리면 되는) 값이라 굳이 state에 안 넣고
    그냥 변수로만 들고 있는다. 다만 "선정 상품번호 목록"은 매번 다시 치기 귀찮을 수 있어서 state에 저장해둔다. */
-let ssCalcParsedRows = null;
 let ssCalcPickedMonth = '';
 let ssCalcPickedEntryId = '';
+// 파일 구조가 서로 다를 수 있어서(예: 발주발송관리 vs 구매확정내역), 파일 2개를 각자 따로 파싱하고
+// 각자 열을 따로 고르게 한 다음, 계산할 때 두 파일의 결과를 합친다.
+let ssCalcFiles = [
+  {parsedRows:null, headers:[], codeCol:'', amountCol:'', dateCol:'', fileName:''},
+  {parsedRows:null, headers:[], codeCol:'', amountCol:'', dateCol:'', fileName:''},
+];
+let ssCalcResult = null;
 
 function updateSsCalcPickedMonth(v){ ssCalcPickedMonth = v; ssCalcPickedEntryId=''; render(); }
 function updateSsCalcPickedEntry(v){ ssCalcPickedEntryId = v; render(); }
@@ -1704,32 +1714,25 @@ function applyCalcResultToSettings(){
   saveState(); render();
   alert(`"${matched.promoName||'(제목 없음)'}_${matched.brand||''}" 셋팅 항목에 행사매출 ${formatWon(ssCalcResult.grandTotal)}을 반영했어요.`);
 }
-let ssCalcHeaders = [];
-let ssCalcCodeCol = '';
-let ssCalcAmountCol = '';
-let ssCalcDateCol = '';
-let ssCalcResult = null;
 
-async function handleSmartstoreCalcFile(){
-  const fileInput = document.getElementById('ssCalcFile');
-  const resultEl = document.getElementById('ssCalcFileMsg');
+async function handleSmartstoreCalcFile(fileIdx){
+  const fileInput = document.getElementById('ssCalcFile'+fileIdx);
   const file = fileInput && fileInput.files[0];
   if(!file) return;
   if(typeof XLSX === 'undefined'){
     alert('엑셀 처리 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침 후 다시 시도해주세요.');
     return;
   }
-  if(resultEl) resultEl.innerHTML = '';
   try{
     const buf = await file.arrayBuffer();
     // cellDates:true로 읽어야 "주문일시" 같은 날짜 칸이 진짜 날짜로 들어와서, 행사 기간으로 걸러낼 수 있다
     const wb = XLSX.read(buf, {type:'array', cellDates:true});
     const ws = wb.Sheets[wb.SheetNames[0]];
-    // 네이버 스마트스토어 주문 엑셀은 1행에 표가 아니라 사용법 안내문구가 들어있고, 진짜 열 제목(상품번호 등)은
-    // 그 아래 어딘가에 있다. 그래서 "상품번호"라는 글자가 있는 행을 찾아서 그 행을 진짜 헤더로 쓴다.
+    // 네이버 스마트스토어 주문 엑셀은 파일 종류에 따라 1행에 표가 아니라 사용법 안내문구가 들어있기도 해서,
+    // "상품번호"라는 글자가 있는 행을 찾아서 그 행을 진짜 헤더로 쓴다 (1행이 바로 헤더인 파일도 문제없이 처리됨).
     const grid = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
     let headerRowIdx = grid.findIndex(row => row.some(cell => String(cell).trim()==='상품번호'));
-    if(headerRowIdx===-1) headerRowIdx = 0; // 못 찾으면 그냥 1행을 헤더로 사용(예전 방식)
+    if(headerRowIdx===-1) headerRowIdx = 0;
     const headers = grid[headerRowIdx].map(h=>String(h).trim());
     const dataRows = grid.slice(headerRowIdx+1)
       .filter(row => row.some(cell => String(cell).trim()!==''))
@@ -1739,12 +1742,15 @@ async function handleSmartstoreCalcFile(){
         return obj;
       });
     if(dataRows.length===0){ alert('엑셀에서 데이터를 찾지 못했어요. 첫 시트에 표 형태로 되어있는지 확인해주세요.'); return; }
-    ssCalcParsedRows = dataRows;
-    ssCalcHeaders = headers.filter(Boolean);
+    const cleanHeaders = headers.filter(Boolean);
+    const f = ssCalcFiles[fileIdx];
+    f.parsedRows = dataRows;
+    f.headers = cleanHeaders;
+    f.fileName = file.name;
     // 열 이름을 보고 그럴듯한 걸 자동으로 추측해서 미리 골라준다 (틀리면 화면에서 직접 바꾸면 됨)
-    ssCalcCodeCol = ssCalcHeaders.find(h=>/상품\s*번호/.test(h)) || ssCalcHeaders.find(h=>h==='상품번호') || ssCalcHeaders[0] || '';
-    ssCalcAmountCol = ssCalcHeaders.find(h=>/총\s*주문\s*금액/.test(h)) || ssCalcHeaders.find(h=>/주문\s*금액/.test(h)) || ssCalcHeaders.find(h=>/정산.*금액/.test(h)) || ssCalcHeaders[1] || '';
-    ssCalcDateCol = ssCalcHeaders.find(h=>/주문\s*일시/.test(h)) || ssCalcHeaders.find(h=>/결제일/.test(h)) || ssCalcHeaders.find(h=>/주문일/.test(h)) || ssCalcHeaders.find(h=>/발송일/.test(h)) || '';
+    f.codeCol = cleanHeaders.find(h=>/상품\s*번호/.test(h)) || cleanHeaders.find(h=>h==='상품번호') || cleanHeaders[0] || '';
+    f.amountCol = cleanHeaders.find(h=>/총\s*주문\s*금액/.test(h)) || cleanHeaders.find(h=>/주문\s*금액/.test(h)) || cleanHeaders.find(h=>/정산.*금액/.test(h)) || cleanHeaders[1] || '';
+    f.dateCol = cleanHeaders.find(h=>/주문\s*일시/.test(h)) || cleanHeaders.find(h=>/결제일/.test(h)) || cleanHeaders.find(h=>/주문일/.test(h)) || cleanHeaders.find(h=>/발송일/.test(h)) || cleanHeaders.find(h=>/구매확정일/.test(h)) || '';
     ssCalcResult = null;
     render();
   }catch(e){
@@ -1757,9 +1763,7 @@ async function handleSmartstoreCalcFile(){
     }
   }
 }
-function updateSsCalcCodeCol(v){ ssCalcCodeCol = v; ssCalcResult=null; render(); }
-function updateSsCalcAmountCol(v){ ssCalcAmountCol = v; ssCalcResult=null; render(); }
-function updateSsCalcDateCol(v){ ssCalcDateCol = v; ssCalcResult=null; render(); }
+function updateSsCalcCol(fileIdx, field, v){ ssCalcFiles[fileIdx][field] = v; ssCalcResult=null; render(); }
 function updateSsCalcSelectedCodes(v){
   ensureSmartstore().calcSelectedCodes = v;
   ssCalcResult = null;
@@ -1770,10 +1774,11 @@ function updateSsCalcEventDate(field, v){
   ssCalcResult = null;
   saveState();
 }
-function resetSmartstoreCalc(){
-  ssCalcParsedRows = null; ssCalcHeaders = []; ssCalcCodeCol = ''; ssCalcAmountCol = ''; ssCalcDateCol = ''; ssCalcResult = null;
-  const fileInput = document.getElementById('ssCalcFile');
+function resetSmartstoreCalcFile(fileIdx){
+  ssCalcFiles[fileIdx] = {parsedRows:null, headers:[], codeCol:'', amountCol:'', dateCol:'', fileName:''};
+  const fileInput = document.getElementById('ssCalcFile'+fileIdx);
   if(fileInput) fileInput.value = '';
+  ssCalcResult = null;
   render();
 }
 /* 엑셀에서 읽어온 날짜값(Date 객체 / 엑셀 시리얼 숫자 / 문자열 등 어떤 형태로 오든)을 "YYYY-MM-DD"로 통일해서 비교할 수 있게 만든다 */
@@ -1788,40 +1793,90 @@ function normalizeExcelDateToYMD(v){
   return '';
 }
 function runSmartstoreCalc(){
-  if(!ssCalcParsedRows){ alert('먼저 엑셀 파일을 선택해주세요.'); return; }
-  if(!ssCalcCodeCol || !ssCalcAmountCol){ alert('상품번호 열과 주문금액 열을 선택해주세요.'); return; }
+  const activeFiles = ssCalcFiles.filter(f=>f.parsedRows);
+  if(activeFiles.length===0){ alert('먼저 엑셀 파일을 하나 이상 선택해주세요.'); return; }
+  for(const f of activeFiles){
+    if(!f.codeCol || !f.amountCol){ alert(`"${f.fileName}" 파일의 상품번호 열과 주문금액 열을 선택해주세요.`); return; }
+  }
   const raw = (ensureSmartstore().calcSelectedCodes||'').trim();
   if(!raw){ alert('행사에 선정된 상품번호를 입력해주세요.'); return; }
   const wanted = Array.from(new Set(raw.split(/[\n,]/).map(s=>s.trim()).filter(Boolean)));
   const wantedSet = new Set(wanted);
-  const nameCol = ssCalcHeaders.find(h=>/상품명/.test(h));
   const ss = ensureSmartstore();
   const startDate = (ss.calcEventStart||'').trim();
   const endDate = (ss.calcEventEnd||'').trim();
-  const useDateFilter = !!(ssCalcDateCol && (startDate || endDate));
+
   const byCode = {};
   wanted.forEach(c=>{ byCode[c] = {code:c, count:0, total:0, name:''}; });
   let skippedByDate = 0;
-  ssCalcParsedRows.forEach(row=>{
-    const code = String(row[ssCalcCodeCol]||'').trim();
-    if(!wantedSet.has(code)) return;
-    if(useDateFilter){
-      const rowDate = normalizeExcelDateToYMD(row[ssCalcDateCol]);
-      if(rowDate){
-        if(startDate && rowDate<startDate){ skippedByDate++; return; }
-        if(endDate && rowDate>endDate){ skippedByDate++; return; }
+  let usedDateFilter = false;
+
+  activeFiles.forEach(f=>{
+    const nameCol = f.headers.find(h=>/상품명/.test(h));
+    const useDateFilter = !!(f.dateCol && (startDate || endDate));
+    if(useDateFilter) usedDateFilter = true;
+    f.parsedRows.forEach(row=>{
+      const code = String(row[f.codeCol]||'').trim();
+      if(!wantedSet.has(code)) return;
+      if(useDateFilter){
+        const rowDate = normalizeExcelDateToYMD(row[f.dateCol]);
+        if(rowDate){
+          if(startDate && rowDate<startDate){ skippedByDate++; return; }
+          if(endDate && rowDate>endDate){ skippedByDate++; return; }
+        }
       }
-    }
-    const amt = sanitizePromoNumber(String(row[ssCalcAmountCol]||'0'));
-    byCode[code].count++;
-    byCode[code].total += Number(amt)||0;
-    if(!byCode[code].name && nameCol) byCode[code].name = String(row[nameCol]||'');
+      const amt = sanitizePromoNumber(String(row[f.amountCol]||'0'));
+      byCode[code].count++;
+      byCode[code].total += Number(amt)||0;
+      if(!byCode[code].name && nameCol) byCode[code].name = String(row[nameCol]||'');
+    });
   });
+
   const resultRows = wanted.map(c=>byCode[c]);
   const grandTotal = resultRows.reduce((s,r)=>s+r.total,0);
   const matchedCount = resultRows.reduce((s,r)=>s+r.count,0);
-  ssCalcResult = {rows:resultRows, grandTotal, matchedCount, usedDateFilter:useDateFilter, skippedByDate};
+  ssCalcResult = {rows:resultRows, grandTotal, matchedCount, usedDateFilter, skippedByDate, fileCount:activeFiles.length};
   render();
+}
+
+function renderSsCalcFileBlock(fileIdx){
+  const f = ssCalcFiles[fileIdx];
+  return `
+    <div class="ssc-file-block">
+      <div class="ssc-file-block-title">파일 ${fileIdx+1}</div>
+      <div class="ssc-file-row">
+        <label class="ssc-file-btn">
+          📁 엑셀 파일 선택
+          <input type="file" id="ssCalcFile${fileIdx}" accept=".xlsx,.xls" onchange="handleSmartstoreCalcFile(${fileIdx})" style="display:none">
+        </label>
+        <span class="ssc-file-name">${f.parsedRows ? `${f.fileName} · ${f.parsedRows.length.toLocaleString('ko-KR')}행` : '선택된 파일 없음'}</span>
+        ${f.parsedRows ? `<button class="btn ghost" onclick="resetSmartstoreCalcFile(${fileIdx})" style="color:var(--text-primary)">지우기</button>` : ''}
+      </div>
+      ${f.parsedRows ? `
+        <div class="ssc-colpick-row">
+          <div class="field">
+            <label>상품번호 열</label>
+            <select class="row-input ssc-left" onchange="updateSsCalcCol(${fileIdx},'codeCol',this.value)">
+              ${f.headers.map(h=>`<option value="${h}" ${h===f.codeCol?'selected':''}>${h}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>주문금액 열</label>
+            <select class="row-input ssc-left" onchange="updateSsCalcCol(${fileIdx},'amountCol',this.value)">
+              ${f.headers.map(h=>`<option value="${h}" ${h===f.amountCol?'selected':''}>${h}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>주문일자 열 (기간 필터링용)</label>
+            <select class="row-input ssc-left" onchange="updateSsCalcCol(${fileIdx},'dateCol',this.value)">
+              <option value="">사용 안 함</option>
+              ${f.headers.map(h=>`<option value="${h}" ${h===f.dateCol?'selected':''}>${h}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      ` : ''}
+    </div>
+  `;
 }
 
 function renderSmartstoreCalc(){
@@ -1834,6 +1889,7 @@ function renderSmartstoreCalc(){
     promo.selections.filter(s=>visibleBrands.includes(s.brand||''))
       .map(s=>(s.startDate||'').slice(0,7)).filter(Boolean)
   )).sort().reverse();
+  const anyFileLoaded = ssCalcFiles.some(f=>f.parsedRows);
 
   return `
     <div class="page-header">
@@ -1846,86 +1902,62 @@ function renderSmartstoreCalc(){
 
     ${renderBrandFilterBar(filterKey, promo.brands)}
 
-    <div class="card ssc-card">
-      <div class="ssc-step-title"><span class="ssc-step-num">1</span>선정리스트에서 자동 불러오기</div>
-      <div class="helptext" style="margin-top:0">위 브랜드 필터에 체크된 브랜드의 행사만 아래 목록에 나와요. 행사를 고르면 상품코드와 기간이 자동으로 채워져요.</div>
-      <div class="ssc-picker-row">
-        <div class="field">
-          <label>월</label>
-          <select class="row-input" onchange="updateSsCalcPickedMonth(this.value)">
-            <option value="">전체</option>
-            ${months.map(m=>`<option value="${m}" ${m===ssCalcPickedMonth?'selected':''}>${m}</option>`).join('')}
-          </select>
+    <div class="ss-row2col">
+      <div class="card ssc-card">
+        <div class="ssc-step-title"><span class="ssc-step-num">1</span>선정리스트에서 자동 불러오기</div>
+        <div class="helptext" style="margin-top:0">위 브랜드 필터에 체크된 브랜드의 행사만 아래 목록에 나와요.</div>
+        <div class="ssc-picker-col">
+          <div class="field">
+            <label>월</label>
+            <select class="row-input ssc-left" onchange="updateSsCalcPickedMonth(this.value)">
+              <option value="">전체</option>
+              ${months.map(m=>`<option value="${m}" ${m===ssCalcPickedMonth?'selected':''}>${m}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>행사</label>
+            <select class="row-input ssc-left" onchange="updateSsCalcPickedEntry(this.value)">
+              <option value="">선택해주세요</option>
+              ${entries.map(s=>`<option value="${s.id}" ${s.id===ssCalcPickedEntryId?'selected':''}>[${s.brand||'?'}] ${s.promoName||'(제목 없음)'} · ${s.startDate||'?'}~${s.endDate||'?'} · 상품 ${(s.products||[]).length}개</option>`).join('')}
+            </select>
+          </div>
+          <button class="btn" onclick="loadCodesFromSelection()" style="width:100%">⬇ 불러오기</button>
         </div>
-        <div class="field" style="flex:1;min-width:240px">
-          <label>행사</label>
-          <select class="row-input" onchange="updateSsCalcPickedEntry(this.value)">
-            <option value="">선택해주세요</option>
-            ${entries.map(s=>`<option value="${s.id}" ${s.id===ssCalcPickedEntryId?'selected':''}>[${s.brand||'?'}] ${s.promoName||'(제목 없음)'} · ${s.startDate||'?'}~${s.endDate||'?'} · 상품 ${(s.products||[]).length}개</option>`).join('')}
-          </select>
-        </div>
-        <button class="btn" onclick="loadCodesFromSelection()">⬇ 불러오기</button>
+        ${entries.length===0 ? `<div class="helptext" style="margin-top:8px">조건에 맞는 선정리스트 항목이 없어요.</div>` : ''}
       </div>
-      ${entries.length===0 ? `<div class="helptext" style="margin-top:8px">조건에 맞는 선정리스트 항목이 없어요.</div>` : ''}
-    </div>
 
-    <div class="card ssc-card">
-      <div class="ssc-step-title"><span class="ssc-step-num">2</span>행사 기간 · 선정 상품번호</div>
-      <div class="helptext" style="margin-top:0">엑셀에 이 기간 밖의 주문이 섞여있어도, 이 기간에 해당하는 주문만 계산에 들어가요. (비워두면 기간 상관없이 전부 계산해요)</div>
-      <div class="ssc-date-row">
-        <div class="field">
-          <label>행사 시작일</label>
-          <input type="date" class="row-input" value="${ss.calcEventStart||''}" onchange="updateSsCalcEventDate('calcEventStart', this.value)">
+      <div class="card ssc-card">
+        <div class="ssc-step-title"><span class="ssc-step-num">2</span>행사 기간 · 선정 상품번호</div>
+        <div class="helptext" style="margin-top:0">엑셀에 기간 밖 주문이 섞여있어도 이 기간만 계산돼요. (비워두면 전체 계산)</div>
+        <div class="ssc-date-row">
+          <div class="field">
+            <label>행사 시작일</label>
+            <input type="date" class="row-input ssc-left" value="${ss.calcEventStart||''}" onchange="updateSsCalcEventDate('calcEventStart', this.value)">
+          </div>
+          <div class="field">
+            <label>행사 종료일</label>
+            <input type="date" class="row-input ssc-left" value="${ss.calcEventEnd||''}" onchange="updateSsCalcEventDate('calcEventEnd', this.value)">
+          </div>
         </div>
-        <div class="field">
-          <label>행사 종료일</label>
-          <input type="date" class="row-input" value="${ss.calcEventEnd||''}" onchange="updateSsCalcEventDate('calcEventEnd', this.value)">
-        </div>
-      </div>
-      <label class="ssc-textarea-label">선정 상품번호 (한 줄에 하나씩, 또는 쉼표로 구분)</label>
-      <textarea class="row-input ssc-textarea" placeholder="예)
+        <label class="ssc-textarea-label">선정 상품번호 (한 줄에 하나씩, 또는 쉼표로 구분)</label>
+        <textarea class="row-input ssc-textarea ssc-left" placeholder="예)
 12345678
 23456789
 34567890" onchange="updateSsCalcSelectedCodes(this.value)">${ss.calcSelectedCodes||''}</textarea>
+      </div>
     </div>
 
     <div class="card ssc-card">
-      <div class="ssc-step-title"><span class="ssc-step-num">3</span>스마트스토어 주문 엑셀 업로드</div>
-      <div class="helptext" style="margin-top:0">스마트스토어센터에서 다운받은 주문 엑셀(.xlsx) 파일을 그대로 선택해주세요. 한 달치를 통째로 넣어도, 위에서 정한 행사 기간에 맞게 자동으로 걸러져요.</div>
+      <div class="ssc-step-title"><span class="ssc-step-num">3</span>스마트스토어 주문 엑셀 업로드 (최대 2개, 합산 계산)</div>
+      <div class="helptext" style="margin-top:0">"전체주문발주발송관리"·"선택주문구매확정내역"처럼 구조가 다른 파일 2개를 각각 올려도, 열만 맞게 골라주면 두 파일의 금액을 합쳐서 계산해요. 파일 1개만 있어도 괜찮아요.</div>
       <div class="ssc-warn">⚠ 파일에 비밀번호가 걸려있다면 여기서 바로 못 열어요. 엑셀에서 열어서 "파일 &gt; 정보 &gt; 통합 문서 보호 &gt; 암호로 보호"에서 암호를 지우고 저장한 뒤 올려주세요.</div>
-      <div class="ssc-file-row">
-        <label class="ssc-file-btn">
-          📁 엑셀 파일 선택
-          <input type="file" id="ssCalcFile" accept=".xlsx,.xls" onchange="handleSmartstoreCalcFile()" style="display:none">
-        </label>
-        <span class="ssc-file-name">${ssCalcParsedRows ? `${ssCalcParsedRows.length.toLocaleString('ko-KR')}행 불러옴` : '선택된 파일 없음'}</span>
-        ${ssCalcParsedRows ? `<button class="btn ghost" onclick="resetSmartstoreCalc()" style="color:var(--text-primary)">지우기</button>` : ''}
+      <div class="ssc-files-grid">
+        ${renderSsCalcFileBlock(0)}
+        ${renderSsCalcFileBlock(1)}
       </div>
-      <div id="ssCalcFileMsg"></div>
-      ${ssCalcParsedRows ? `
-        <div class="ssc-colpick-row">
-          <div class="field">
-            <label>상품번호 열</label>
-            <select class="row-input" onchange="updateSsCalcCodeCol(this.value)">
-              ${ssCalcHeaders.map(h=>`<option value="${h}" ${h===ssCalcCodeCol?'selected':''}>${h}</option>`).join('')}
-            </select>
-          </div>
-          <div class="field">
-            <label>주문금액 열</label>
-            <select class="row-input" onchange="updateSsCalcAmountCol(this.value)">
-              ${ssCalcHeaders.map(h=>`<option value="${h}" ${h===ssCalcAmountCol?'selected':''}>${h}</option>`).join('')}
-            </select>
-          </div>
-          <div class="field">
-            <label>주문일자 열 (기간 필터링용)</label>
-            <select class="row-input" onchange="updateSsCalcDateCol(this.value)">
-              <option value="">사용 안 함(기간 필터 없이 전부 계산)</option>
-              ${ssCalcHeaders.map(h=>`<option value="${h}" ${h===ssCalcDateCol?'selected':''}>${h}</option>`).join('')}
-            </select>
-          </div>
-        </div>
-        <div class="helptext" style="margin-top:8px">열 이름을 자동으로 추측해서 골라뒀어요 — 맞는지 한 번 확인해주세요.</div>
-        <button class="btn" style="margin-top:12px" onclick="runSmartstoreCalc()">📊 계산하기</button>
+      ${anyFileLoaded ? `
+        <div class="helptext" style="margin-top:12px">열 이름을 자동으로 추측해서 골라뒀어요 — 맞는지 한 번 확인해주세요.</div>
+        <button class="btn" style="margin-top:10px" onclick="runSmartstoreCalc()">📊 계산하기</button>
       ` : ''}
     </div>
 
@@ -1936,6 +1968,7 @@ function renderSmartstoreCalc(){
         <button class="btn" onclick="applyCalcResultToSettings()">✅ 셋팅에 반영</button>
       </div>
       <div class="helptext" style="margin-top:4px">위 1번에서 불러왔던 행사의 "셋팅 &gt; 셋팅도우미" 행사매출 칸에 이 합계를 채워 넣어요. 통계 페이지의 선정 내역에도 같이 표시돼요.</div>
+      <div class="helptext" style="margin-top:4px">📄 파일 ${ssCalcResult.fileCount}개의 금액을 합산했어요.</div>
       ${ssCalcResult.usedDateFilter ? `<div class="helptext" style="margin-top:4px;color:#12805C">📅 기간 필터 적용됨 — 행사 기간 밖의 주문 ${ssCalcResult.skippedByDate}건은 계산에서 제외했어요.</div>` : ''}
       <div class="stat-grid" style="margin-top:14px">
         <div class="stat-box"><div class="label">선정 상품 수</div><div class="value mono">${ssCalcResult.rows.length}개</div></div>
