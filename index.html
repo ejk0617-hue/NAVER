@@ -79,6 +79,8 @@
     padding:9px 10px;border-radius:7px;font-size:12.5px;cursor:pointer;margin-top:6px;font-family:inherit;
   }
   .sidebar-footer button:hover{background:#E4F8EC;color:var(--text-primary);}
+  #undoBtn{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important;font-weight:700;margin-top:0!important;}
+  #undoBtn:hover{background:#02A64C!important;}
   .sync-badge{font-size:11px;color:var(--text-secondary);padding:6px 2px;line-height:1.5;}
   #importFile{display:none;}
 
@@ -514,6 +516,7 @@
     </div>
     <nav id="navList"></nav>
     <div class="sidebar-footer">
+      <button id="undoBtn" onclick="undoLastAction()" title="Ctrl+Z로도 되돌릴 수 있어요">↩️ 되돌리기 (Ctrl+Z)</button>
       <div id="syncBadge" class="sync-badge"></div>
       <button onclick="manualRefresh()">🔄 서버에서 새로고침</button>
       <button onclick="openAccessCodeDialog()">☁️ 클라우드 동기화 설정 (Firebase)</button>
@@ -563,6 +566,7 @@ const NAV_GROUPS = [
   {key:'smartstore', type:'group', label:'스마트스토어', color:'#8B5CF6', children:[
     {sectionKey:'smartstore_sales', label:'매출 대시보드', color:'#8B5CF6'},
     {sectionKey:'weekly_meeting',   label:'주간미팅',     color:'#0EA5A5'},
+    {sectionKey:'smartstore_calc',  label:'매출계산기',   color:'#F0932B'},
   ]},
 ];
 
@@ -720,12 +724,68 @@ function loadState(){
     return defaultState();
   }
 }
+/* ---------- 되돌리기(Ctrl+Z) ----------
+   saveState()가 호출될 때마다(=뭔가 하나 바뀔 때마다), "이번 변경이 일어나기 직전의 상태"를
+   스택에 쌓아둔다. 되돌리기를 누르면 그 스택에서 하나 꺼내서 그 시점으로 되돌린다. */
+const UNDO_STACK_MAX = 30;
+let undoStack = [];
+let previousStateSnapshot = (()=>{ try{ return JSON.stringify(state); }catch(e){ return null; } })(); // 마지막 saveState() 시점의 state 스냅샷(JSON 문자열)
+let isUndoing = false;
+
+function undoLastAction(){
+  if(undoStack.length===0){
+    flashUndoButton('되돌릴 작업이 없어요');
+    return;
+  }
+  isUndoing = true;
+  try{
+    const prevSnap = undoStack.pop();
+    state = JSON.parse(prevSnap);
+    previousStateSnapshot = prevSnap;
+    sanitizeStateArrays();
+    saveState();
+    render();
+    flashUndoButton('되돌렸어요');
+  }catch(e){
+    console.error('되돌리기 실패:', e);
+  }finally{
+    isUndoing = false;
+  }
+}
+function flashUndoButton(msg){
+  const btn = document.getElementById('undoBtn');
+  if(!btn) return;
+  const original = btn.dataset.label || btn.textContent;
+  btn.dataset.label = original;
+  btn.textContent = '↩️ ' + msg;
+  clearTimeout(flashUndoButton._t);
+  flashUndoButton._t = setTimeout(()=>{ if(btn) btn.textContent = original; }, 1200);
+}
+document.addEventListener('keydown', (e)=>{
+  const key = (e.key||'').toLowerCase();
+  if((e.ctrlKey || e.metaKey) && key==='z' && !e.shiftKey){
+    // 텍스트 입력칸에 포커스가 있을 땐 브라우저 기본 되돌리기(글자 입력 취소)를 그대로 두고 방해하지 않는다
+    const tag = document.activeElement ? document.activeElement.tagName : '';
+    const isEditable = tag==='INPUT' || tag==='TEXTAREA' || (document.activeElement && document.activeElement.isContentEditable);
+    if(isEditable) return;
+    e.preventDefault();
+    undoLastAction();
+  }
+});
+
 function saveState(){
+  if(!isUndoing && previousStateSnapshot!==null){
+    undoStack.push(previousStateSnapshot);
+    if(undoStack.length > UNDO_STACK_MAX) undoStack.shift();
+  }
   state.__lastLocalEdit = Date.now(); // 로컬에서 마지막으로 수정한 시각 — 새로고침해도 localStorage에 그대로 남아있음
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }catch(e){
     console.error('저장 실패 (localStorage 사용 불가 환경일 수 있습니다):', e);
+  }
+  if(!isUndoing){
+    try{ previousStateSnapshot = JSON.stringify(state); }catch(e){}
   }
   scheduleServerPush();
 }
@@ -1308,6 +1368,7 @@ function render(){
       case 'fulfillment_items': main.innerHTML = renderFulfillmentItems(); break;
       case 'smartstore_sales': main.innerHTML = renderSmartstoreDashboard(); break;
       case 'weekly_meeting': main.innerHTML = renderWeeklyMeeting(); break;
+      case 'smartstore_calc': main.innerHTML = renderSmartstoreCalc(); break;
       default: main.innerHTML = renderDashboard();
     }
   }catch(err){
@@ -1348,6 +1409,9 @@ function ensureSmartstore(){
   if(!state.smartstore.notesByStore || typeof state.smartstore.notesByStore!=='object') state.smartstore.notesByStore = {};
   if(!Array.isArray(state.smartstore.eventSales)) state.smartstore.eventSales = [];
   if(!Array.isArray(state.smartstore.manualEvents)) state.smartstore.manualEvents = [];
+  if(typeof state.smartstore.calcSelectedCodes !== 'string') state.smartstore.calcSelectedCodes = '';
+  if(typeof state.smartstore.calcEventStart !== 'string') state.smartstore.calcEventStart = '';
+  if(typeof state.smartstore.calcEventEnd !== 'string') state.smartstore.calcEventEnd = '';
   return state.smartstore;
 }
 function addManualEvent(){
@@ -1566,6 +1630,245 @@ function renderSmartstoreBrandFilter(){
         <button class="copy-btn" onclick="setAllBrandFilterIn('${filterKey}', false)">전체해제</button>
       </div>
     </div>`;
+}
+
+/* ---------- 매출계산기: 스마트스토어 주문 엑셀에서 행사 선정 상품번호만 골라 상품별 합계를 계산 ----------
+   파일 자체와 파싱 결과는 저장할 필요가 없는(다시 열면 새로 올리면 되는) 값이라 굳이 state에 안 넣고
+   그냥 변수로만 들고 있는다. 다만 "선정 상품번호 목록"은 매번 다시 치기 귀찮을 수 있어서 state에 저장해둔다. */
+let ssCalcParsedRows = null;
+let ssCalcPickedBrand = '';
+let ssCalcPickedMonth = '';
+let ssCalcPickedEntryId = '';
+
+function updateSsCalcPickedBrand(v){ ssCalcPickedBrand = v; ssCalcPickedMonth=''; ssCalcPickedEntryId=''; render(); }
+function updateSsCalcPickedMonth(v){ ssCalcPickedMonth = v; ssCalcPickedEntryId=''; render(); }
+function updateSsCalcPickedEntry(v){ ssCalcPickedEntryId = v; render(); }
+function ssCalcEntriesForBrandMonth(){
+  const promo = ensurePromotion();
+  return promo.selections.filter(s=>{
+    if(ssCalcPickedBrand && (s.brand||'')!==ssCalcPickedBrand) return false;
+    if(ssCalcPickedMonth && !(s.startDate||'').startsWith(ssCalcPickedMonth)) return false;
+    return true;
+  }).sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''));
+}
+function loadCodesFromSelection(){
+  const promo = ensurePromotion();
+  const entry = promo.selections.find(s=>s.id===ssCalcPickedEntryId);
+  if(!entry){ alert('불러올 행사를 선택해주세요.'); return; }
+  const codes = Array.from(new Set((entry.products||[]).map(p=>String(p.code||'').trim()).filter(Boolean)));
+  if(codes.length===0){ alert('이 행사에 등록된 상품코드가 없어요.'); return; }
+  const ss = ensureSmartstore();
+  ss.calcSelectedCodes = codes.join('\n');
+  ss.calcEventStart = entry.startDate||'';
+  ss.calcEventEnd = entry.endDate||'';
+  saveState(); render();
+}
+let ssCalcHeaders = [];
+let ssCalcCodeCol = '';
+let ssCalcAmountCol = '';
+let ssCalcResult = null;
+
+async function handleSmartstoreCalcFile(){
+  const fileInput = document.getElementById('ssCalcFile');
+  const resultEl = document.getElementById('ssCalcFileMsg');
+  const file = fileInput && fileInput.files[0];
+  if(!file) return;
+  if(typeof XLSX === 'undefined'){
+    alert('엑셀 처리 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침 후 다시 시도해주세요.');
+    return;
+  }
+  if(resultEl) resultEl.innerHTML = '';
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:false});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    // 네이버 스마트스토어 주문 엑셀은 1행에 표가 아니라 사용법 안내문구가 들어있고, 진짜 열 제목(상품번호 등)은
+    // 그 아래 어딘가에 있다. 그래서 "상품번호"라는 글자가 있는 행을 찾아서 그 행을 진짜 헤더로 쓴다.
+    const grid = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    let headerRowIdx = grid.findIndex(row => row.some(cell => String(cell).trim()==='상품번호'));
+    if(headerRowIdx===-1) headerRowIdx = 0; // 못 찾으면 그냥 1행을 헤더로 사용(예전 방식)
+    const headers = grid[headerRowIdx].map(h=>String(h).trim());
+    const dataRows = grid.slice(headerRowIdx+1)
+      .filter(row => row.some(cell => String(cell).trim()!==''))
+      .map(row=>{
+        const obj = {};
+        headers.forEach((h,i)=>{ if(h) obj[h] = row[i]!==undefined ? row[i] : ''; });
+        return obj;
+      });
+    if(dataRows.length===0){ alert('엑셀에서 데이터를 찾지 못했어요. 첫 시트에 표 형태로 되어있는지 확인해주세요.'); return; }
+    ssCalcParsedRows = dataRows;
+    ssCalcHeaders = headers.filter(Boolean);
+    // 열 이름을 보고 그럴듯한 걸 자동으로 추측해서 미리 골라준다 (틀리면 화면에서 직접 바꾸면 됨)
+    ssCalcCodeCol = ssCalcHeaders.find(h=>/상품\s*번호/.test(h)) || ssCalcHeaders.find(h=>h==='상품번호') || ssCalcHeaders[0] || '';
+    ssCalcAmountCol = ssCalcHeaders.find(h=>/총\s*주문\s*금액/.test(h)) || ssCalcHeaders.find(h=>/주문\s*금액/.test(h)) || ssCalcHeaders.find(h=>/정산.*금액/.test(h)) || ssCalcHeaders[1] || '';
+    ssCalcResult = null;
+    render();
+  }catch(e){
+    console.error(e);
+    const msg = String(e && e.message || e);
+    if(/password/i.test(msg)){
+      alert('이 엑셀 파일은 비밀번호로 잠겨있어서 여기서 바로 열 수 없어요.\n\n엑셀에서 파일을 여신 뒤 "파일 > 정보 > 통합 문서 보호 > 암호로 보호"에서 암호를 지우고 저장한 다음, 그 파일을 다시 올려주세요.');
+    } else {
+      alert('엑셀 파일을 읽는 중 문제가 생겼어요. 파일 형식을 확인해주세요.');
+    }
+  }
+}
+function updateSsCalcCodeCol(v){ ssCalcCodeCol = v; ssCalcResult=null; render(); }
+function updateSsCalcAmountCol(v){ ssCalcAmountCol = v; ssCalcResult=null; render(); }
+function updateSsCalcSelectedCodes(v){
+  ensureSmartstore().calcSelectedCodes = v;
+  saveState();
+}
+function resetSmartstoreCalc(){
+  ssCalcParsedRows = null; ssCalcHeaders = []; ssCalcCodeCol = ''; ssCalcAmountCol = ''; ssCalcResult = null;
+  const fileInput = document.getElementById('ssCalcFile');
+  if(fileInput) fileInput.value = '';
+  render();
+}
+function runSmartstoreCalc(){
+  if(!ssCalcParsedRows){ alert('먼저 엑셀 파일을 선택해주세요.'); return; }
+  if(!ssCalcCodeCol || !ssCalcAmountCol){ alert('상품번호 열과 주문금액 열을 선택해주세요.'); return; }
+  const raw = (ensureSmartstore().calcSelectedCodes||'').trim();
+  if(!raw){ alert('행사에 선정된 상품번호를 입력해주세요.'); return; }
+  const wanted = Array.from(new Set(raw.split(/[\n,]/).map(s=>s.trim()).filter(Boolean)));
+  const wantedSet = new Set(wanted);
+  const nameCol = ssCalcHeaders.find(h=>/상품명/.test(h));
+  const byCode = {};
+  wanted.forEach(c=>{ byCode[c] = {code:c, count:0, total:0, name:''}; });
+  ssCalcParsedRows.forEach(row=>{
+    const code = String(row[ssCalcCodeCol]||'').trim();
+    if(!wantedSet.has(code)) return;
+    const amt = sanitizePromoNumber(String(row[ssCalcAmountCol]||'0'));
+    byCode[code].count++;
+    byCode[code].total += Number(amt)||0;
+    if(!byCode[code].name && nameCol) byCode[code].name = String(row[nameCol]||'');
+  });
+  const resultRows = wanted.map(c=>byCode[c]);
+  const grandTotal = resultRows.reduce((s,r)=>s+r.total,0);
+  const matchedCount = resultRows.reduce((s,r)=>s+r.count,0);
+  ssCalcResult = {rows:resultRows, grandTotal, matchedCount};
+  render();
+}
+
+function renderSmartstoreCalc(){
+  const ss = ensureSmartstore();
+  const promo = ensurePromotion();
+  const entries = ssCalcEntriesForBrandMonth();
+  const months = Array.from(new Set(
+    promo.selections.filter(s=>!ssCalcPickedBrand || (s.brand||'')===ssCalcPickedBrand)
+      .map(s=>(s.startDate||'').slice(0,7)).filter(Boolean)
+  )).sort().reverse();
+
+  return `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:#F0932B22;color:#F0932B">스마트스토어</span>
+        <h1>매출계산기</h1>
+        <div class="sub">스마트스토어에서 다운받은 주문 엑셀에서, 행사에 선정된 상품번호만 골라 상품별 총 주문금액을 자동으로 계산해요</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>1. 선정리스트에서 자동 불러오기</h2>
+      <div class="helptext" style="margin-top:0">브랜드와 행사를 고르면, 그 행사에 등록된 상품코드와 기간을 아래 칸에 자동으로 채워줘요.</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px">
+        <div class="field">
+          <label>브랜드</label>
+          <select class="row-input" style="min-width:160px" onchange="updateSsCalcPickedBrand(this.value)">
+            <option value="">전체</option>
+            ${promo.brands.map(b=>`<option value="${b}" ${b===ssCalcPickedBrand?'selected':''}>${b}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>월</label>
+          <select class="row-input" style="min-width:130px" onchange="updateSsCalcPickedMonth(this.value)">
+            <option value="">전체</option>
+            ${months.map(m=>`<option value="${m}" ${m===ssCalcPickedMonth?'selected':''}>${m}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="flex:1;min-width:220px">
+          <label>행사</label>
+          <select class="row-input" onchange="updateSsCalcPickedEntry(this.value)">
+            <option value="">선택해주세요</option>
+            ${entries.map(s=>`<option value="${s.id}" ${s.id===ssCalcPickedEntryId?'selected':''}>${s.promoName||'(제목 없음)'} · ${s.startDate||'?'}~${s.endDate||'?'} · 상품 ${(s.products||[]).length}개</option>`).join('')}
+          </select>
+        </div>
+        <div class="field" style="justify-content:flex-end;display:flex">
+          <button class="btn" onclick="loadCodesFromSelection()">⬇ 불러오기</button>
+        </div>
+      </div>
+      ${entries.length===0 ? `<div class="helptext" style="margin-top:8px">조건에 맞는 선정리스트 항목이 없어요.</div>` : ''}
+      ${ss.calcEventStart || ss.calcEventEnd ? `<div class="helptext" style="margin-top:10px">📅 마지막으로 불러온 행사 기간: <b class="mono">${ss.calcEventStart||'?'} ~ ${ss.calcEventEnd||'?'}</b></div>` : ''}
+    </div>
+
+    <div class="card">
+      <h2>2. 행사에 선정된 상품번호 입력</h2>
+      <div class="helptext" style="margin-top:0">위에서 자동으로 불러오거나, 한 줄에 하나씩 · 쉼표(,)로 구분해서 직접 넣어주세요.</div>
+      <textarea class="row-input" style="width:100%;min-height:110px;text-align:left;font-family:inherit;resize:vertical;margin-top:10px" placeholder="예)
+12345678
+23456789
+34567890" onchange="updateSsCalcSelectedCodes(this.value)">${ss.calcSelectedCodes||''}</textarea>
+    </div>
+
+    <div class="card">
+      <h2>3. 스마트스토어 주문 엑셀 업로드</h2>
+      <div class="helptext" style="margin-top:0">스마트스토어센터에서 다운받은 주문 엑셀(.xlsx) 파일을 그대로 선택해주세요.</div>
+      <div class="helptext" style="margin-top:4px;color:#B4790A">⚠ 파일에 비밀번호가 걸려있다면 여기서 바로 못 열어요. 엑셀에서 열어서 "파일 &gt; 정보 &gt; 통합 문서 보호 &gt; 암호로 보호"에서 암호를 지우고 저장한 뒤 올려주세요.</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <input type="file" id="ssCalcFile" accept=".xlsx,.xls" onchange="handleSmartstoreCalcFile()">
+        ${ssCalcParsedRows ? `<button class="btn ghost" onclick="resetSmartstoreCalc()" style="color:var(--text-primary)">파일 지우기</button>` : ''}
+      </div>
+      <div id="ssCalcFileMsg"></div>
+      ${ssCalcParsedRows ? `
+        <div style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap">
+          <div class="field">
+            <label>상품번호가 들어있는 열</label>
+            <select class="row-input" style="min-width:220px" onchange="updateSsCalcCodeCol(this.value)">
+              ${ssCalcHeaders.map(h=>`<option value="${h}" ${h===ssCalcCodeCol?'selected':''}>${h}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>주문금액이 들어있는 열</label>
+            <select class="row-input" style="min-width:220px" onchange="updateSsCalcAmountCol(this.value)">
+              ${ssCalcHeaders.map(h=>`<option value="${h}" ${h===ssCalcAmountCol?'selected':''}>${h}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="helptext" style="margin-top:8px">엑셀 총 ${ssCalcParsedRows.length.toLocaleString('ko-KR')}행을 불러왔어요. 열 이름을 자동으로 추측해서 골라뒀어요 — 맞는지 한 번 확인해주세요.</div>
+        <button class="btn" style="margin-top:12px" onclick="runSmartstoreCalc()">📊 계산하기</button>
+      ` : ''}
+    </div>
+
+    ${ssCalcResult ? `
+    <div class="card">
+      <h2>계산 결과</h2>
+      <div class="stat-grid">
+        <div class="stat-box"><div class="label">선정 상품 수</div><div class="value mono">${ssCalcResult.rows.length}개</div></div>
+        <div class="stat-box"><div class="label">매칭된 주문 건수</div><div class="value mono">${ssCalcResult.matchedCount}건</div></div>
+        <div class="stat-box"><div class="label">총 주문금액 합계</div><div class="value mono" style="color:#F0932B">${formatWon(ssCalcResult.grandTotal)}</div></div>
+      </div>
+      <table>
+        <thead><tr><th style="text-align:left">상품번호</th><th style="text-align:left">상품명</th><th class="num">주문건수</th><th class="num">총 주문금액</th></tr></thead>
+        <tbody>
+          ${ssCalcResult.rows.map((r,i)=>`
+            <tr class="${i%2===1?'row-alt':''}">
+              <td class="mono">${r.code}</td>
+              <td>${r.name||'-'}</td>
+              <td class="num mono" style="${r.count===0?'color:var(--negative);font-weight:700':''}">${r.count}</td>
+              <td class="num mono" style="font-weight:700">${formatWon(r.total)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--border)">
+            <td colspan="3" style="font-weight:800">합계</td>
+            <td class="num mono" style="font-weight:800">${formatWon(ssCalcResult.grandTotal)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      ${ssCalcResult.rows.some(r=>r.count===0) ? `<div class="helptext" style="margin-top:10px;color:var(--negative)">⚠ 빨간 글씨로 표시된 상품번호는 업로드한 엑셀에서 매칭되는 주문을 찾지 못했어요. 상품번호나 선택한 열이 맞는지 확인해주세요.</div>` : ''}
+    </div>` : ''}
+  `;
 }
 
 function renderSmartstoreDashboard(){
