@@ -3515,41 +3515,58 @@ function renderPromoStats(){
   const filterKey = 'statsFilter';
   const visibleBrands = promo.brands.filter(b=>isBrandVisibleIn(filterKey, b));
 
-  // 이 달에 시작하는 프로모션 중, 선정완료된 브랜드만(필터에 켜진 브랜드만) 각 브랜드×등급 조합으로 하나씩 센다
-  const counts = {}; // { [brand]: { S:0, A:0, B:0, C:0 } }
+  // 이 달에 시작하는 프로모션 중, 브랜드×등급 조합으로 "제안 건수"와 "선정 건수"를 각각 센다
+  const selCounts = {}; // { [brand]: { S:0, A:0, B:0, C:0 } } - 선정된 것만
+  const proposedCounts = {}; // { [brand]: { S:0, A:0, B:0, C:0 } } - 제안된 전체(선정 여부 무관)
   const zero = () => ({S:0, A:0, B:0, C:0});
   const selectedList = []; // 선정 내역 목록용
 
   promo.proposals.forEach(p=>{
     if(!p.periodStart || !p.periodStart.startsWith(monthKey)) return;
-    const sel = selectedBrandsOf(p).filter(b=>visibleBrands.includes(b));
-    if(sel.length===0) return;
     const grade = PROMO_GRADE_OPTIONS.includes(p.grade) ? p.grade : null;
+
+    // 제안 건수: 이 제안에 걸려있는 브랜드 전체(선정 여부와 무관하게) 기준
+    const proposedBrands = (p.brands||[]).filter(b=>visibleBrands.includes(b));
     if(grade){
-      sel.forEach(b=>{
-        if(!counts[b]) counts[b] = zero();
-        counts[b][grade]++;
+      proposedBrands.forEach(b=>{
+        if(!proposedCounts[b]) proposedCounts[b] = zero();
+        proposedCounts[b][grade]++;
       });
     }
-    selectedList.push({p, sel, grade});
+
+    // 선정 건수: 브랜드별로 실제 선정완료 체크된 것만
+    const sel = selectedBrandsOf(p).filter(b=>visibleBrands.includes(b));
+    if(sel.length>0){
+      if(grade){
+        sel.forEach(b=>{
+          if(!selCounts[b]) selCounts[b] = zero();
+          selCounts[b][grade]++;
+        });
+      }
+      selectedList.push({p, sel, grade});
+    }
   });
   selectedList.sort((a,b)=> (a.p.periodStart||'').localeCompare(b.p.periodStart||''));
 
   // 브랜드 목록: 필터에 켜진 브랜드 + 혹시 필터목록엔 없는데 데이터엔 있는 브랜드까지 다 포함
-  const allBrands = Array.from(new Set([...visibleBrands, ...Object.keys(counts)]));
+  const allBrands = Array.from(new Set([...visibleBrands, ...Object.keys(selCounts), ...Object.keys(proposedCounts)]));
   const totalRow = zero();
+  const proposedTotalRow = zero();
   allBrands.forEach(b=>{
-    const c = counts[b] || zero();
-    PROMO_GRADE_OPTIONS.forEach(g=>{ totalRow[g] += c[g]; });
+    const c = selCounts[b] || zero();
+    const pc = proposedCounts[b] || zero();
+    PROMO_GRADE_OPTIONS.forEach(g=>{ totalRow[g] += c[g]; proposedTotalRow[g] += pc[g]; });
   });
   const grandTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+totalRow[g],0);
+  const proposedGrandTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+proposedTotalRow[g],0);
+  const overallRate = proposedGrandTotal>0 ? Math.round(grandTotal/proposedGrandTotal*100) : null;
 
   return `
     <div class="page-header">
       <div>
         <span class="eyebrow" style="background:#2F6FED22;color:#2F6FED">프로모션</span>
         <h1>통계</h1>
-        <div class="sub">브랜드별 · 월별 · 등급별로 몇 건이 선정됐는지 한눈에 볼 수 있어요 (프로모션 기간 시작일 기준)</div>
+        <div class="sub">브랜드별 · 월별 · 등급별로 제안 대비 선정 현황을 한눈에 볼 수 있어요 (프로모션 기간 시작일 기준)</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <button class="btn ghost" onclick="promoStatsPrev()" style="color:var(--text-primary)">◀</button>
@@ -3562,8 +3579,49 @@ function renderPromoStats(){
     ${renderBrandFilterBar(filterKey, promo.brands)}
 
     <div class="stat-grid">
-      <div class="stat-box"><div class="label">${y}년 ${m}월 총 선정 건수</div><div class="value mono">${grandTotal}건</div></div>
-      ${PROMO_GRADE_OPTIONS.map(g=>`<div class="stat-box"><div class="label">${g}급</div><div class="value mono" style="color:${PROMO_GRADE_COLORS[g].fg}">${totalRow[g]}건</div></div>`).join('')}
+      <div class="stat-box"><div class="label">${y}년 ${m}월 제안 건수</div><div class="value mono">${proposedGrandTotal}건</div></div>
+      <div class="stat-box"><div class="label">${y}년 ${m}월 선정 건수</div><div class="value mono">${grandTotal}건</div></div>
+      <div class="stat-box"><div class="label">선정률</div><div class="value mono" style="color:#2F6FED">${overallRate===null?'-':overallRate+'%'}</div></div>
+      ${PROMO_GRADE_OPTIONS.map(g=>`<div class="stat-box"><div class="label">${g}급 (선정/제안)</div><div class="value mono" style="color:${PROMO_GRADE_COLORS[g].fg};font-size:18px">${totalRow[g]}/${proposedTotalRow[g]}</div></div>`).join('')}
+    </div>
+
+    <div class="card">
+      <h2>브랜드별 제안 대비 선정 현황</h2>
+      ${allBrands.length===0 ? `<div class="empty">브랜드 필터에서 브랜드를 선택해주세요.</div>` : `
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left">브랜드</th>
+            <th class="num">제안 건수</th>
+            <th class="num">선정 건수</th>
+            <th class="num">선정률</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${allBrands.map((b,i)=>{
+            const pTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+(proposedCounts[b]?proposedCounts[b][g]:0),0);
+            const sTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+(selCounts[b]?selCounts[b][g]:0),0);
+            const rate = pTotal>0 ? Math.round(sTotal/pTotal*100) : null;
+            return `
+            <tr class="${i%2===1?'row-alt':''}">
+              <td style="display:flex;align-items:center;gap:6px;font-weight:700">
+                <span style="width:8px;height:8px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block;flex-shrink:0"></span>${b}
+              </td>
+              <td class="num mono">${pTotal||'-'}</td>
+              <td class="num mono" style="font-weight:800">${sTotal||'-'}</td>
+              <td class="num mono" style="font-weight:800;color:${rate===null?'var(--text-secondary)':(rate>=50?'#12805C':'#D64545')}">${rate===null?'-':rate+'%'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--border)">
+            <td style="font-weight:800">전체 합계</td>
+            <td class="num mono" style="font-weight:800">${proposedGrandTotal||'-'}</td>
+            <td class="num mono" style="font-weight:800">${grandTotal||'-'}</td>
+            <td class="num mono" style="font-weight:800;color:#2F6FED">${overallRate===null?'-':overallRate+'%'}</td>
+          </tr>
+        </tfoot>
+      </table>`}
     </div>
 
     <div class="card">
@@ -3579,7 +3637,7 @@ function renderPromoStats(){
         </thead>
         <tbody>
           ${allBrands.map((b,i)=>{
-            const c = counts[b] || zero();
+            const c = selCounts[b] || zero();
             const rowTotal = PROMO_GRADE_OPTIONS.reduce((s,g)=>s+c[g],0);
             return `
             <tr class="${i%2===1?'row-alt':''}">
@@ -3815,24 +3873,40 @@ function handleProposalSync(ss, data) {
   var sheet = ss.getSheets().filter(function(s){ return s.getSheetId() === targetGid; })[0];
   if (!sheet) sheet = ss.getSheets()[0];
 
-  var header = ['ID','제안마감일','시작일','종료일','브랜드','프로모션명','등급','담당자','제안완료','선정완료 브랜드','관련링크'];
+  var header = ['행키','제안마감일','시작일','종료일','브랜드','프로모션명','등급','담당자','제안완료','선정완료','관련링크'];
   if (sheet.getLastRow() === 0) sheet.appendRow(header);
 
   var lastRow = sheet.getLastRow();
-  var ids = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat() : [];
-  var rowIndex = ids.indexOf(data.id);
+  var allKeys = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, 1).getValues().flat() : [];
 
-  var rowValues = [
-    data.id, data.proposeDate || '', data.periodStart || '', data.periodEnd || '',
-    data.brands || '', data.promoName || '', data.grade || '', data.owner || '',
-    data.proposeDone || '', data.selectedBrands || '', data.link || ''
-  ];
-
-  if (rowIndex >= 0) {
-    sheet.getRange(rowIndex + 2, 1, 1, rowValues.length).setValues([rowValues]);
-  } else {
-    sheet.appendRow(rowValues);
+  // 1) 이 제안(proposalId)에 해당하던 기존 행 중, 이번엔 안 보낸(브랜드가 빠지거나 삭제된) 것들은 지운다
+  var prefix = data.proposalId + '_';
+  for (var i = allKeys.length - 1; i >= 0; i--) {
+    var key = allKeys[i];
+    if (String(key).indexOf(prefix) === 0) {
+      var stillExists = (data.rows || []).some(function(r){ return r.rowKey === key; });
+      if (!stillExists) {
+        sheet.deleteRow(i + 2);
+        allKeys.splice(i, 1);
+      }
+    }
   }
+
+  // 2) 지금 보낸 행(브랜드별로 하나씩)들을 갱신하거나 새로 추가한다
+  (data.rows || []).forEach(function(r){
+    var rowValues = [
+      r.rowKey, r.proposeDate || '', r.periodStart || '', r.periodEnd || '',
+      r.brand || '', r.promoName || '', r.grade || '', r.owner || '',
+      r.proposeDone || '', r.selected || '', r.link || ''
+    ];
+    var idx = allKeys.indexOf(r.rowKey);
+    if (idx >= 0) {
+      sheet.getRange(idx + 2, 1, 1, rowValues.length).setValues([rowValues]);
+    } else {
+      sheet.appendRow(rowValues);
+      allKeys.push(r.rowKey);
+    }
+  });
 }
 
 // 선정리스트 → gid 511039182 탭
@@ -4172,32 +4246,42 @@ function scheduleSheetSync(proposalId){
 }
 async function pushProposalToSheet(proposalId){
   const url = (ensurePromotion().sheetSyncUrl||'').trim();
-  if(!url) return;
+  if(!url) return {ok:false, error:'웹앱 주소가 없습니다.'};
   const p = ensurePromotion().proposals.find(x=>x.id===proposalId);
-  if(!p) return;
-  const payload = {
-    type: 'proposal',
-    id: p.id,
+  if(!p) return {ok:false, error:'제안 항목을 찾을 수 없습니다.'};
+  // 브랜드가 여러 개면(예: VSL3, 갸스비) 한 줄에 몰아넣지 않고, 브랜드마다 시트에 별도 행을 만든다
+  const brands = (p.brands && p.brands.length) ? p.brands : [''];
+  const selected = new Set(selectedBrandsOf(p));
+  const rows = brands.map(brand => ({
+    rowKey: p.id + '_' + (brand || '(미지정)'),
     proposeDate: p.proposeDate||'',
     periodStart: p.periodStart||'',
     periodEnd: p.periodEnd||'',
-    brands: (p.brands||[]).join(', '),
+    brand: brand||'',
     promoName: p.promoName||'',
     grade: p.grade||'',
     owner: p.owner||'',
     proposeDone: p.proposeDone ? 'Y' : '',
-    selectedBrands: selectedBrandsOf(p).join(', '),
+    selected: selected.has(brand) ? 'Y' : '',
     link: p.link||'',
-  };
+  }));
+  const payload = { type: 'proposal', proposalId: p.id, rows };
   try{
-    await fetch(url, {
+    // 예전엔 no-cors로 보내서 실제로 잘 들어갔는지 전혀 확인할 수 없었다. 앱스스크립트 웹앱은
+    // 실제로 응답을 읽을 수 있다는 게 진단으로 확인됐으니, 이제는 응답까지 읽어서 진짜 성공/실패를 판단한다.
+    const res = await fetch(url, {
       method: 'POST',
-      mode: 'no-cors', // 앱스스크립트 웹앱은 별도 CORS 설정이 안 되므로 no-cors로 전송(응답은 못 읽지만 전송은 됨)
       headers: {'Content-Type': 'text/plain;charset=utf-8'},
       body: JSON.stringify(payload),
     });
+    const text = await res.text();
+    let parsed = null;
+    try{ parsed = JSON.parse(text); }catch(e){}
+    if(parsed && parsed.ok) return {ok:true};
+    return {ok:false, error: (parsed && parsed.error) ? parsed.error : ('서버 응답 이상: ' + text.slice(0,200))};
   }catch(e){
     console.error('구글시트 동기화 실패:', e);
+    return {ok:false, error:e.message};
   }
 }
 async function syncAllProposalsToSheet(btnEl){
@@ -4206,12 +4290,24 @@ async function syncAllProposalsToSheet(btnEl){
   const proposals = ensurePromotion().proposals;
   if(proposals.length===0){ alert('보낼 제안리스트 항목이 없습니다.'); return; }
   const label = btnEl ? btnEl.textContent : '';
-  if(btnEl){ btnEl.textContent = '보내는 중...'; btnEl.disabled = true; }
-  for(const p of proposals){
-    await pushProposalToSheet(p.id);
+  if(btnEl){ btnEl.textContent = `보내는 중... (0/${proposals.length})`; btnEl.disabled = true; }
+  let successCount = 0;
+  const failures = [];
+  for(let i=0; i<proposals.length; i++){
+    const p = proposals[i];
+    const result = await pushProposalToSheet(p.id);
+    if(result && result.ok) successCount++;
+    else failures.push({name: p.promoName || '(제목 없음)', error: result ? result.error : '알 수 없는 오류'});
+    if(btnEl) btnEl.textContent = `보내는 중... (${i+1}/${proposals.length})`;
   }
   if(btnEl){ btnEl.textContent = label; btnEl.disabled = false; }
-  alert(`${proposals.length}개 항목을 구글 스프레드시트로 보냈어요. 시트에서 확인해주세요.\n(구글 응답은 읽을 수 없는 방식이라, 실제로 잘 들어갔는지는 시트를 직접 열어 확인해주셔야 해요)`);
+  if(failures.length===0){
+    alert(`✅ 총 ${proposals.length}개 전부 정상적으로 보냈어요 (서버 응답 확인 완료).`);
+  } else {
+    const preview = failures.slice(0,8).map(f=>`- ${f.name}: ${f.error}`).join('\n');
+    const more = failures.length>8 ? `\n...외 ${failures.length-8}개 더` : '';
+    alert(`총 ${proposals.length}개 중 ${successCount}개 성공, ${failures.length}개 실패했어요.\n\n[실패 내역]\n${preview}${more}`);
+  }
 }
 /* ---- 선정리스트도 같은 방식으로 구글 스프레드시트에 동기화 (다른 탭) ----
    선정 항목 하나에 상품이 여러 개 있을 수 있어서, "이 항목의 상품 행 전체를 다시 보낸다" 방식으로 동작한다.
