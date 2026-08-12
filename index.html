@@ -732,6 +732,7 @@ function sanitizeStateArrays(){
   ensureSmartstore();
   ensureWeeklyMeeting();
   ensureDraftEntries();
+  ensureDeletedIds();
 }
 sanitizeStateArrays();
 function loadState(){
@@ -911,13 +912,37 @@ let pendingLocalPush = false; // 방금 로컬에서 바뀐 게 있는데 아직
    여러 명이 동시에 서로 다른 항목을 고쳐도, 나중에 서버와 합칠 때 항목 단위로 "누가 더 최근에 고쳤는지"
    비교해서 서로의 변경사항이 사라지지 않게 하기 위함 (전체를 통째로 덮어쓰지 않음). */
 function touch(record){ if(record) record._ts = Date.now(); return record; }
+/* 항목을 삭제할 때 배열에서 그냥 지우기만 하면, 나중에 서버에 아직 그 항목이 남아있는 스냅샷과
+   병합될 때(예: 새로고침 타이밍이 안 맞았을 때) "로컬엔 없던 항목"으로 보여서 되살아나버린다.
+   그래서 삭제한 항목의 id와 삭제 시각을 따로 기록해두고(무덤/tombstone), 병합할 때 그 시각 이후로
+   서버에서 온 데이터는 "이미 삭제된 것"으로 보고 무시한다. */
+function ensureDeletedIds(){
+  if(!state.deletedIds || typeof state.deletedIds!=='object') state.deletedIds = {};
+  ['proposals','selections','checklist','liveSchedule','fulfillmentItems'].forEach(k=>{
+    if(!state.deletedIds[k] || typeof state.deletedIds[k]!=='object') state.deletedIds[k] = {};
+  });
+  return state.deletedIds;
+}
+function recordDeleted(collectionKey, id){
+  if(!id) return;
+  ensureDeletedIds()[collectionKey][id] = Date.now();
+}
+function mergeDeletedIds(localMap, serverMap){
+  const merged = Object.assign({}, localMap||{});
+  Object.keys(serverMap||{}).forEach(id=>{
+    const sTs = Number(serverMap[id]||0);
+    if(!merged[id] || sTs > Number(merged[id]||0)) merged[id] = sTs;
+  });
+  return merged;
+}
 /* 여러 명이 동시에 같은 프로모션/셋팅/라이브/풀필먼트 데이터를 만질 수 있기 때문에,
    "서버 데이터로 통째로 덮어쓰기"는 누군가 방금 고친 걸 다른 사람이 지워버리는 문제가 생긴다.
    그래서 자주 같이 만지는 배열들은 항목(id) 단위로 합치고, 같은 항목이 양쪽에 다 있으면
    touch()로 기록해둔 "_ts"(마지막으로 고친 시각)가 더 최근인 쪽을 그대로 살린다. */
-function mergeById(localArr, serverArr){
+function mergeById(localArr, serverArr, tombstones){
   if(!Array.isArray(serverArr)) serverArr = [];
   if(!Array.isArray(localArr)) localArr = [];
+  tombstones = tombstones || {};
   const byId = new Map();
   // 화면에 보일 순서는 "로컬(내가 마지막으로 드래그해서 정렬해둔) 순서"를 기준으로 삼는다.
   // 예전엔 서버 배열을 먼저 넣어서 항상 서버 순서로 되돌아갔는데(새로고침하면 정렬이 풀리던 원인),
@@ -926,6 +951,8 @@ function mergeById(localArr, serverArr){
   localArr.forEach(r=>{ if(r && r.id) byId.set(r.id, r); });
   serverArr.forEach(r=>{
     if(!r || !r.id) return;
+    const tombTs = tombstones[r.id];
+    if(tombTs!==undefined && Number(tombTs) >= Number(r._ts||0)) return; // 이 항목은 그 서버 데이터보다 최근(또는 같은 시점)에 삭제됐다 → 되살리지 않는다
     const existing = byId.get(r.id);
     if(!existing || Number(r._ts||0) > Number(existing._ts||0)) byId.set(r.id, r);
   });
@@ -935,8 +962,8 @@ function mergeById(localArr, serverArr){
    비교하면 — 누가 담당자만 살짝 고쳐도 그게 더 최신이 되어서, 내가 방금 체크한 선정완료가
    같이 덮어써져 사라지는 문제가 있었다. 그래서 선정완료(selectedBrands)만은 줄 전체와 별개로,
    브랜드 하나하나마다 각자 기록해둔 시각(selectedBrandsTs)을 비교해서 병합한다. */
-function mergeProposals(localArr, serverArr){
-  const merged = mergeById(localArr, serverArr);
+function mergeProposals(localArr, serverArr, tombstones){
+  const merged = mergeById(localArr, serverArr, tombstones);
   const localById = new Map((localArr||[]).filter(p=>p&&p.id).map(p=>[p.id,p]));
   const serverById = new Map((serverArr||[]).filter(p=>p&&p.id).map(p=>[p.id,p]));
   return merged.map(p=>{
@@ -1013,13 +1040,18 @@ function handleRemoteStateUpdate(rawRemoteState){
   if(localEdit > serverEdit){
     // 로컬이 서버보다 최신이면 절대로 로컬을 통째로 서버 걸로 바꾸지 않는다. 제안·선정·셋팅·라이브·풀필먼트만
     // 항목 단위로 합치고, 나머지(광고비 충전 내역, 스마트스토어 매출 등)는 전부 로컬 그대로 유지한다.
+    const localDeleted = ensureDeletedIds();
+    const serverDeleted = remoteState.deletedIds || {};
+    const mergedDeleted = {};
+    Object.keys(localDeleted).forEach(k=>{ mergedDeleted[k] = mergeDeletedIds(localDeleted[k], serverDeleted[k]); });
+    state.deletedIds = mergedDeleted;
     if(state.promotion){
-      state.promotion.proposals = mergeProposals(state.promotion.proposals, serverPromo.proposals||[]);
-      state.promotion.selections = mergeById(state.promotion.selections, serverPromo.selections||[]);
-      state.promotion.checklist = mergeById(state.promotion.checklist, serverPromo.checklist||[]);
+      state.promotion.proposals = mergeProposals(state.promotion.proposals, serverPromo.proposals||[], mergedDeleted.proposals);
+      state.promotion.selections = mergeById(state.promotion.selections, serverPromo.selections||[], mergedDeleted.selections);
+      state.promotion.checklist = mergeById(state.promotion.checklist, serverPromo.checklist||[], mergedDeleted.checklist);
     }
-    if(state.live) state.live.schedule = mergeById(state.live.schedule, serverLive.schedule||[]);
-    if(state.fulfillment) state.fulfillment.items = mergeById(state.fulfillment.items, serverFulfillment.items||[]);
+    if(state.live) state.live.schedule = mergeById(state.live.schedule, serverLive.schedule||[], mergedDeleted.liveSchedule);
+    if(state.fulfillment) state.fulfillment.items = mergeById(state.fulfillment.items, serverFulfillment.items||[], mergedDeleted.fulfillmentItems);
     scheduleServerPush(); // 이렇게 합친 최신 내용을 다시 서버로 밀어올린다
   } else {
     // 서버가 로컬과 같거나 더 최신이면(다른 사람이 더 나중에 저장한 경우) 서버 내용을 기본으로 받아들이되,
@@ -1029,16 +1061,21 @@ function handleRemoteStateUpdate(rawRemoteState){
     const localChecklist = (state.promotion && state.promotion.checklist) || [];
     const localLiveSchedule = (state.live && state.live.schedule) || [];
     const localFulfillItems = (state.fulfillment && state.fulfillment.items) || [];
+    const localDeleted = ensureDeletedIds();
+    const serverDeleted = remoteState.deletedIds || {};
+    const mergedDeleted = {};
+    Object.keys(localDeleted).forEach(k=>{ mergedDeleted[k] = mergeDeletedIds(localDeleted[k], serverDeleted[k]); });
 
     state = Object.assign(defaultState(), remoteState);
+    state.deletedIds = mergedDeleted;
 
     if(state.promotion){
-      state.promotion.proposals = mergeProposals(localProposals, state.promotion.proposals);
-      state.promotion.selections = mergeById(localSelections, state.promotion.selections);
-      state.promotion.checklist = mergeById(localChecklist, state.promotion.checklist);
+      state.promotion.proposals = mergeProposals(localProposals, state.promotion.proposals, mergedDeleted.proposals);
+      state.promotion.selections = mergeById(localSelections, state.promotion.selections, mergedDeleted.selections);
+      state.promotion.checklist = mergeById(localChecklist, state.promotion.checklist, mergedDeleted.checklist);
     }
-    if(state.live) state.live.schedule = mergeById(localLiveSchedule, state.live.schedule);
-    if(state.fulfillment) state.fulfillment.items = mergeById(localFulfillItems, state.fulfillment.items);
+    if(state.live) state.live.schedule = mergeById(localLiveSchedule, state.live.schedule, mergedDeleted.liveSchedule);
+    if(state.fulfillment) state.fulfillment.items = mergeById(localFulfillItems, state.fulfillment.items, mergedDeleted.fulfillmentItems);
   }
   sanitizeStateArrays();
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
@@ -2717,6 +2754,7 @@ function addFulfillmentItem(){
 function deleteFulfillmentItem(id){
   const f = ensureFulfillment();
   f.items = f.items.filter(x=>x.id!==id);
+  recordDeleted('fulfillmentItems', id);
   saveState(); render();
 }
 function updateFulfillmentItemField(id, field, val){
@@ -3467,11 +3505,11 @@ function undoImportBatch(batchId){
   const batch = batches.find(b=>b.id===batchId);
   if(!batch) return;
   if(!confirm(`"${EXCEL_TARGET_LABELS[batch.target]||batch.target}"에 가져왔던 ${batch.count}개 항목을 전부 삭제할까요?`)) return;
-  if(batch.target==='proposals'){ const p=ensurePromotion(); p.proposals = p.proposals.filter(x=>x.importBatchId!==batchId); }
-  else if(batch.target==='selections'){ const p=ensurePromotion(); p.selections = p.selections.filter(x=>x.importBatchId!==batchId); }
-  else if(batch.target==='checklist'){ const p=ensurePromotion(); p.checklist = p.checklist.filter(x=>x.importBatchId!==batchId); }
-  else if(batch.target==='liveSchedule'){ const l=ensureLive(); l.schedule = l.schedule.filter(x=>x.importBatchId!==batchId); }
-  else if(batch.target==='fulfillmentItems'){ const f=ensureFulfillment(); f.items = f.items.filter(x=>x.importBatchId!==batchId); }
+  if(batch.target==='proposals'){ const p=ensurePromotion(); p.proposals.filter(x=>x.importBatchId===batchId).forEach(x=>recordDeleted('proposals', x.id)); p.proposals = p.proposals.filter(x=>x.importBatchId!==batchId); }
+  else if(batch.target==='selections'){ const p=ensurePromotion(); p.selections.filter(x=>x.importBatchId===batchId).forEach(x=>recordDeleted('selections', x.id)); p.selections = p.selections.filter(x=>x.importBatchId!==batchId); }
+  else if(batch.target==='checklist'){ const p=ensurePromotion(); p.checklist.filter(x=>x.importBatchId===batchId).forEach(x=>recordDeleted('checklist', x.id)); p.checklist = p.checklist.filter(x=>x.importBatchId!==batchId); }
+  else if(batch.target==='liveSchedule'){ const l=ensureLive(); l.schedule.filter(x=>x.importBatchId===batchId).forEach(x=>recordDeleted('liveSchedule', x.id)); l.schedule = l.schedule.filter(x=>x.importBatchId!==batchId); }
+  else if(batch.target==='fulfillmentItems'){ const f=ensureFulfillment(); f.items.filter(x=>x.importBatchId===batchId).forEach(x=>recordDeleted('fulfillmentItems', x.id)); f.items = f.items.filter(x=>x.importBatchId!==batchId); }
   state.importBatches = batches.filter(b=>b.id!==batchId);
   saveState(); render();
 }
@@ -3774,6 +3812,7 @@ function addChecklistEntry(){
 function deleteChecklistEntry(id){
   const promo = ensurePromotion();
   promo.checklist = promo.checklist.filter(c=>c.id!==id);
+  recordDeleted('checklist', id);
   saveState(); render();
 }
 function updateChecklistField(id, field, value){
@@ -5010,6 +5049,8 @@ function toggleProposalBrandSelected(id, brand){
     addSelectionFromProposalBrand(row, brand);
   } else {
     // 체크 해제 시, 이 제안+브랜드에서 자동 생성됐던 셋팅/선정리스트 항목도 함께 삭제
+    promo.checklist.filter(c => c.sourceProposalId===id && c.brand===brand).forEach(c=>recordDeleted('checklist', c.id));
+    promo.selections.filter(s => s.sourceProposalId===id && s.brand===brand).forEach(s=>recordDeleted('selections', s.id));
     promo.checklist = promo.checklist.filter(c => !(c.sourceProposalId===id && c.brand===brand));
     promo.selections = promo.selections.filter(s => !(s.sourceProposalId===id && s.brand===brand));
   }
@@ -5035,6 +5076,7 @@ function toggleProposalField(id, field){
 function deleteProposal(id){
   const promo = ensurePromotion();
   promo.proposals = promo.proposals.filter(p=>p.id!==id);
+  recordDeleted('proposals', id);
   saveState(); render();
   pushCalendarEvent('propose', id);
   pushCalendarEvent('selected', id);
@@ -5174,6 +5216,7 @@ function addSelectionEntry(){
 function deleteSelectionEntry(id){
   const promo = ensurePromotion();
   promo.selections = promo.selections.filter(s=>s.id!==id);
+  recordDeleted('selections', id);
   saveState(); render();
   resyncSelectionEntryToSheet(id); // 삭제는 바로(디바운스 없이) 반영해서 시트에서도 즉시 지운다
 }
@@ -5358,6 +5401,7 @@ function deleteSelectedSelections(){
   if(n===0){ alert('삭제할 항목을 먼저 체크해주세요.'); return; }
   if(!confirm(`선택한 ${n}개 항목을 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return;
   const promo = ensurePromotion();
+  selectedSelectionIds.forEach(id=>recordDeleted('selections', id));
   promo.selections = promo.selections.filter(s=>!selectedSelectionIds.has(s.id));
   selectedSelectionIds.clear();
   saveState(); render();
@@ -5622,6 +5666,7 @@ function addLiveSchedule(){
 function deleteLiveSchedule(id){
   const live = ensureLive();
   live.schedule = live.schedule.filter(s=>s.id!==id);
+  recordDeleted('liveSchedule', id);
   saveState(); render();
   pushCalendarEvent('live', id);
 }
