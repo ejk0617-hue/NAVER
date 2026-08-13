@@ -323,6 +323,12 @@
   .ssc-result-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;}
   .ssc-result-table{margin-top:14px;}
   .ssc-batch-result-card{border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:14px;background:#fff;}
+
+  .ss-import-mapping-list{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-height:340px;overflow-y:auto;padding-right:4px;}
+  .ss-import-mapping-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--bg);}
+  .ss-import-mapping-row.unmapped{background:#FFE4E7;}
+  .ss-import-source-name{flex:1;min-width:0;font-size:12.5px;font-weight:700;}
+  .ss-import-mapping-row select{max-width:150px;}
   th{text-align:left;font-size:11.5px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.03em;
      padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
   td{padding:9px 10px;border-bottom:1px solid #EEF0F3;vertical-align:middle;overflow:hidden;}
@@ -2211,6 +2217,155 @@ function renderSmartstoreCalc(){
   `;
 }
 
+/* =========================================================================
+   외부 매출 엑셀(스토어명·날짜·매출 3열짜리) 일괄 불러오기
+   외부 시스템의 브랜드명 표기가 우리 앱과 살짝 다를 수 있어서(예: "후에버"↔"후",
+   "네이처스패밀리"↔"네이쳐스패밀리"), 그대로 매칭하지 않고 사람이 한 번 확인하는
+   "브랜드 매칭" 단계를 거친 다음에 실제로 반영한다.
+   ========================================================================= */
+function levenshteinDistance(a, b){
+  const m = a.length, n = b.length;
+  if(m===0) return n;
+  if(n===0) return m;
+  const dp = Array.from({length:m+1}, ()=>new Array(n+1).fill(0));
+  for(let i=0;i<=m;i++) dp[i][0]=i;
+  for(let j=0;j<=n;j++) dp[0][j]=j;
+  for(let i=1;i<=m;i++){
+    for(let j=1;j<=n;j++){
+      dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+function guessBrandMatch(externalName, ourBrands){
+  const clean = externalName.trim();
+  const exact = ourBrands.find(b=>b.trim()===clean);
+  if(exact) return exact;
+  const contains = ourBrands.find(b=>clean.includes(b.trim()) || b.trim().includes(clean));
+  if(contains) return contains;
+  let best = null, bestDist = Infinity;
+  ourBrands.forEach(b=>{
+    const d = levenshteinDistance(clean, b.trim());
+    if(d < bestDist){ bestDist = d; best = b; }
+  });
+  // 편집거리 2 이상은 짧은 브랜드명끼리 우연히 겹쳐서(예: "오스템"↔"갸스비") 엉뚱하게 매칭될 위험이 있어서,
+  // 정말 표기 차이(예: "네이처스패밀리"↔"네이쳐스패밀리", 글자 하나 차이) 정도인 1까지만 자동으로 인정한다.
+  return (best && bestDist<=1) ? best : '';
+}
+
+let ssImportModalOpen = false;
+let ssImportRows = null; // [{store, date, amount}]
+let ssImportMapping = {}; // { 외부스토어명: 우리브랜드명 }
+function openSsImportModal(){ ssImportModalOpen = true; ssImportRows = null; ssImportMapping = {}; render(); }
+function closeSsImportModal(){ ssImportModalOpen = false; render(); }
+async function handleSsImportFile(){
+  const fileInput = document.getElementById('ssImportFile');
+  const file = fileInput && fileInput.files[0];
+  if(!file) return;
+  if(typeof XLSX === 'undefined'){ alert('엑셀 처리 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침 후 다시 시도해주세요.'); return; }
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:false});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    if(rows.length===0){ alert('엑셀에서 데이터를 찾지 못했어요.'); return; }
+    const headers = Object.keys(rows[0]);
+    const storeCol = headers.find(h=>/스토어명|브랜드/.test(h)) || headers[0];
+    const dateCol = headers.find(h=>/날짜|일자/.test(h)) || headers[1];
+    const amountCol = headers.find(h=>/매출/.test(h)) || headers[2];
+    const parsed = rows.map(r=>({
+      store: String(r[storeCol]||'').trim(),
+      date: normalizeExcelDateToYMD(r[dateCol]) || String(r[dateCol]||'').trim(),
+      amount: Number(sanitizePromoNumber(String(r[amountCol]||'0')))||0,
+    })).filter(r=>r.store && /^\d{4}-\d{2}-\d{2}$/.test(r.date));
+    if(parsed.length===0){ alert('"스토어명 · 날짜 · 매출" 형태의 데이터를 찾지 못했어요. 파일 구조를 확인해주세요.'); return; }
+    ssImportRows = parsed;
+    const promo = ensurePromotion();
+    const uniqueStores = Array.from(new Set(parsed.map(r=>r.store)));
+    ssImportMapping = {};
+    uniqueStores.forEach(s=>{ ssImportMapping[s] = guessBrandMatch(s, promo.brands); });
+    render();
+  }catch(e){
+    console.error(e);
+    alert('엑셀 파일을 읽는 중 문제가 생겼어요. 파일 형식을 확인해주세요.');
+  }
+}
+function updateSsImportMapping(storeName, brand){
+  ssImportMapping[storeName] = brand;
+  render();
+}
+function runSsImport(){
+  if(!ssImportRows){ return; }
+  const unmapped = Object.keys(ssImportMapping).filter(s=>!ssImportMapping[s]);
+  if(unmapped.length>0){
+    if(!confirm(`"${unmapped.join('", "')}" 스토어는 브랜드를 못 정했어요.\n이 스토어들은 건너뛰고 나머지만 가져올까요?`)) return;
+  }
+  const ss = ensureSmartstore();
+  let importedCount = 0, skippedCount = 0;
+  ssImportRows.forEach(r=>{
+    const brand = ssImportMapping[r.store];
+    if(!brand){ skippedCount++; return; }
+    let entry = ss.daily.find(d=>d.store===brand && d.date===r.date);
+    if(!entry){
+      ss.daily.push({id:uid(), store:brand, date:r.date, amount:String(r.amount), orderCount:''});
+    } else {
+      entry.amount = String(r.amount);
+    }
+    importedCount++;
+  });
+  saveState();
+  ssImportModalOpen = false;
+  ssImportRows = null;
+  render();
+  alert(`${importedCount.toLocaleString('ko-KR')}일치 매출을 매출 대시보드에 반영했어요.${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
+}
+function renderSsImportModal(){
+  if(!ssImportModalOpen) return '';
+  const promo = ensurePromotion();
+  const uniqueStores = ssImportRows ? Array.from(new Set(ssImportRows.map(r=>r.store))) : [];
+  const dateRange = ssImportRows && ssImportRows.length>0 ? {
+    start: ssImportRows.reduce((m,r)=>r.date<m?r.date:m, ssImportRows[0].date),
+    end: ssImportRows.reduce((m,r)=>r.date>m?r.date:m, ssImportRows[0].date),
+  } : null;
+  return `
+    <div class="modal-overlay" onclick="closeSsImportModal()">
+      <div class="modal-panel" onclick="event.stopPropagation()" style="max-width:640px">
+        <button class="modal-close" onclick="closeSsImportModal()" title="닫기">✕</button>
+        <div class="modal-title">📥 매출 엑셀 일괄 불러오기</div>
+        <div class="modal-sub">"스토어명 · 날짜 · 매출" 3개 열로 된 엑셀을 그대로 올려주세요.</div>
+
+        ${!ssImportRows ? `
+          <div style="margin-top:18px">
+            <label class="ssc-file-btn">
+              📁 엑셀 파일 선택
+              <input type="file" id="ssImportFile" accept=".xlsx,.xls" onchange="handleSsImportFile()" style="display:none">
+            </label>
+          </div>
+        ` : `
+          <div class="helptext" style="margin-top:14px">총 ${ssImportRows.length.toLocaleString('ko-KR')}건, ${dateRange.start} ~ ${dateRange.end} · 스토어 ${uniqueStores.length}개</div>
+          <div class="helptext" style="margin-top:4px">이름이 다르게 되어있는 스토어는 아래에서 우리 브랜드로 맞춰주세요 (최대한 비슷한 이름을 자동으로 골라놨어요).</div>
+          <div class="ss-import-mapping-list">
+            ${uniqueStores.map(s=>{
+              const rowCount = ssImportRows.filter(r=>r.store===s).length;
+              const mapped = ssImportMapping[s]||'';
+              return `
+              <div class="ss-import-mapping-row ${mapped?'':'unmapped'}">
+                <span class="ss-import-source-name">${s} <span style="color:var(--text-secondary);font-weight:400">(${rowCount}건)</span></span>
+                <span style="color:var(--text-secondary)">→</span>
+                <select class="row-input ssc-left" onchange="updateSsImportMapping('${s.replace(/'/g,"\\'")}', this.value)">
+                  <option value="">건너뛰기</option>
+                  ${promo.brands.map(b=>`<option value="${b}" ${b===mapped?'selected':''}>${b}</option>`).join('')}
+                </select>
+              </div>`;
+            }).join('')}
+          </div>
+          <button class="btn" style="margin-top:16px;width:100%" onclick="runSsImport()">✅ 매출 대시보드에 반영하기</button>
+        `}
+      </div>
+    </div>
+  `;
+}
+
 function renderSmartstoreDashboard(){
   const ss = ensureSmartstore();
   const promo = ensurePromotion();
@@ -2277,6 +2432,7 @@ function renderSmartstoreDashboard(){
         <h1>매출 대시보드</h1>
         <div class="sub">달력에 매출만 입력하면, 주간·월간 목표 달성률까지 자동으로 계산돼요</div>
       </div>
+      <button class="btn ghost" style="color:var(--text-primary)" onclick="openSsImportModal()">📥 엑셀로 일괄 불러오기</button>
     </div>
 
     ${renderSmartstoreBrandFilter()}
@@ -2422,6 +2578,7 @@ function renderSmartstoreDashboard(){
         </table>
       </div>
     </div>
+    ${renderSsImportModal()}
   `;
 }
 /* =========================================================================
