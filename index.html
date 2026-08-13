@@ -165,6 +165,9 @@
   .ss-input-cal-daynum{font-size:9.5px;color:var(--text-secondary);text-align:center;margin-bottom:1px;}
   .ss-input-cal-daynum.sun{color:var(--negative);} .ss-input-cal-daynum.sat{color:var(--accent);}
   .ss-input-cal-input{width:100%;min-width:0;border:1px solid var(--border);border-radius:4px;background:#FAFBFC;padding:3px 2px;font-size:9.5px;text-align:center;font-family:'Roboto Mono',monospace;}
+  .ss-input-cal-order-input{width:100%;min-width:0;border:1px solid transparent;border-radius:4px;background:transparent;padding:1px 2px;font-size:8px;text-align:center;font-family:'Roboto Mono',monospace;color:var(--text-secondary);margin-top:1px;}
+  .ss-input-cal-order-input:focus{border-color:var(--border);background:#FAFBFC;outline:none;}
+  .ss-input-cal-order-input:not(:placeholder-shown){color:#8B5CF6;}
   .ss-input-cal-input:focus{outline:none;border-color:var(--accent);background:#fff;}
   .ss-input-cal-target{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px;padding-top:8px;border-top:1px dashed var(--border);}
   .ss-input-cal-target label{font-size:11px;color:var(--text-secondary);font-weight:700;}
@@ -201,6 +204,7 @@
   .ss-input-cal-grid-narrow .ss-input-cal-store{font-size:13px;}
   .ss-input-cal-grid-narrow .ss-input-cal-total{font-size:12px;}
   .ss-input-cal-grid-narrow .ss-input-cal-input{font-size:12.5px;padding:5px 2px;}
+  .ss-input-cal-grid-narrow .ss-input-cal-order-input{font-size:10px;}
   .ss-input-cal-grid-narrow .ss-input-cal-daynum{font-size:11px;}
   .ss-input-cal-grid-narrow .ss-input-cal-table th{font-size:10.5px;padding:4px 0;}
   .ss-input-cal-grid-narrow .ss-input-cal-cell{padding:2px;}
@@ -1566,6 +1570,18 @@ function setDailyAmountManwon(store, dateStr, value){
   const won = Math.round(manwon * 10000);
   setDailyAmount(store, dateStr, String(won));
 }
+function setDailyOrderCount(store, dateStr, value){
+  const ss = ensureSmartstore();
+  const count = sanitizePromoNumber(value);
+  let entry = ss.daily.find(r=>r.store===store && r.date===dateStr);
+  if(!entry){
+    if(!count) return;
+    ss.daily.push({id:uid(), store, date:dateStr, amount:'', orderCount:count});
+  } else {
+    entry.orderCount = count;
+  }
+  saveState(); render();
+}
 
 /* ---- 스토어별 체크리스트 / 메모장 ---- */
 function ensureStoreChecklist(store){
@@ -1668,6 +1684,9 @@ function buildSalesInputCalGrid(y, m, store){
           <input class="ss-input-cal-input" type="text" inputmode="numeric" placeholder="-"
             value="${entry && entry.amount ? Math.round(Number(entry.amount)/10000).toLocaleString('ko-KR') : ''}"
             onchange="setDailyAmountManwon('${store.replace(/'/g,"\\'")}','${dateStr}', this.value)">
+          <input class="ss-input-cal-order-input" type="text" inputmode="numeric" placeholder="건수"
+            value="${entry && entry.orderCount ? entry.orderCount : ''}"
+            onchange="setDailyOrderCount('${store.replace(/'/g,"\\'")}','${dateStr}', this.value)">
         </td>`;
     }
     weekRows += '</tr>';
@@ -2239,13 +2258,17 @@ function levenshteinDistance(a, b){
 }
 function guessBrandMatch(externalName, ourBrands){
   const clean = externalName.trim();
-  const exact = ourBrands.find(b=>b.trim()===clean);
+  const cleanLower = clean.toLowerCase();
+  const exact = ourBrands.find(b=>b.trim().toLowerCase()===cleanLower);
   if(exact) return exact;
-  const contains = ourBrands.find(b=>clean.includes(b.trim()) || b.trim().includes(clean));
+  const contains = ourBrands.find(b=>{
+    const bLower = b.trim().toLowerCase();
+    return cleanLower.includes(bLower) || bLower.includes(cleanLower);
+  });
   if(contains) return contains;
   let best = null, bestDist = Infinity;
   ourBrands.forEach(b=>{
-    const d = levenshteinDistance(clean, b.trim());
+    const d = levenshteinDistance(cleanLower, b.trim().toLowerCase());
     if(d < bestDist){ bestDist = d; best = b; }
   });
   // 편집거리 2 이상은 짧은 브랜드명끼리 우연히 겹쳐서(예: "오스템"↔"갸스비") 엉뚱하게 매칭될 위험이 있어서,
@@ -2254,9 +2277,10 @@ function guessBrandMatch(externalName, ourBrands){
 }
 
 let ssImportModalOpen = false;
-let ssImportRows = null; // [{store, date, amount}]
+let ssImportRows = null; // [{store, date, amount, orderCount}]
 let ssImportMapping = {}; // { 외부스토어명: 우리브랜드명 }
-function openSsImportModal(){ ssImportModalOpen = true; ssImportRows = null; ssImportMapping = {}; render(); }
+let ssImportPlatformFiltered = false; // 이 파일에 "플랫폼" 열이 있어서 스마트스토어만 걸러냈는지
+function openSsImportModal(){ ssImportModalOpen = true; ssImportRows = null; ssImportMapping = {}; ssImportPlatformFiltered = false; render(); }
 function closeSsImportModal(){ ssImportModalOpen = false; render(); }
 async function handleSsImportFile(){
   const fileInput = document.getElementById('ssImportFile');
@@ -2270,18 +2294,37 @@ async function handleSsImportFile(){
     const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
     if(rows.length===0){ alert('엑셀에서 데이터를 찾지 못했어요.'); return; }
     const headers = Object.keys(rows[0]);
+    const platformCol = headers.find(h=>/플랫폼/.test(h)) || '';
     const storeCol = headers.find(h=>/스토어명|브랜드/.test(h)) || headers[0];
     const dateCol = headers.find(h=>/날짜|일자/.test(h)) || headers[1];
-    const amountCol = headers.find(h=>/매출/.test(h)) || headers[2];
-    const parsed = rows.map(r=>({
-      store: String(r[storeCol]||'').trim(),
-      date: normalizeExcelDateToYMD(r[dateCol]) || String(r[dateCol]||'').trim(),
-      amount: Number(sanitizePromoNumber(String(r[amountCol]||'0')))||0,
-    })).filter(r=>r.store && /^\d{4}-\d{2}-\d{2}$/.test(r.date));
-    if(parsed.length===0){ alert('"스토어명 · 날짜 · 매출" 형태의 데이터를 찾지 못했어요. 파일 구조를 확인해주세요.'); return; }
-    ssImportRows = parsed;
+    // "매출액"이라는 정확한 이름을 가장 먼저 찾고, 없으면 "매출"이 들어간 다른 열(순매출 등)로 넘어간다.
+    // (순매출 · 취소금액처럼 "매출"이 안 들어간 다른 금액 열과 헷갈리지 않도록 매출액을 최우선으로 본다)
+    const amountCol = headers.find(h=>h==='매출액') || headers.find(h=>/매출/.test(h)) || headers[3] || headers[2];
+    const orderCountCol = headers.find(h=>/주문\s*건수/.test(h)) || '';
+
+    let skippedByPlatform = 0;
+    const parsed = rows.map(r=>{
+      if(platformCol){
+        const platform = String(r[platformCol]||'').trim();
+        if(platform !== '스마트스토어'){ return null; }
+      }
+      const store = String(r[storeCol]||'').trim();
+      const date = normalizeExcelDateToYMD(r[dateCol]) || String(r[dateCol]||'').trim();
+      if(!store || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      return {
+        store,
+        date,
+        amount: Number(sanitizePromoNumber(String(r[amountCol]||'0')))||0,
+        orderCount: orderCountCol ? (Number(sanitizePromoNumber(String(r[orderCountCol]||'0')))||0) : null,
+      };
+    });
+    skippedByPlatform = parsed.filter(r=>r===null).length; // 플랫폼 필터·형식 불량으로 제외된 행(참고용, 정확한 사유 구분은 안 함)
+    const cleaned = parsed.filter(Boolean);
+    if(cleaned.length===0){ alert('"스토어명 · 날짜 · 매출액" 형태의 데이터를 찾지 못했어요. 파일 구조를 확인해주세요.'); return; }
+    ssImportRows = cleaned;
+    ssImportPlatformFiltered = !!platformCol;
     const promo = ensurePromotion();
-    const uniqueStores = Array.from(new Set(parsed.map(r=>r.store)));
+    const uniqueStores = Array.from(new Set(cleaned.map(r=>r.store)));
     ssImportMapping = {};
     uniqueStores.forEach(s=>{ ssImportMapping[s] = guessBrandMatch(s, promo.brands); });
     render();
@@ -2305,11 +2348,13 @@ function runSsImport(){
   ssImportRows.forEach(r=>{
     const brand = ssImportMapping[r.store];
     if(!brand){ skippedCount++; return; }
+    const orderCountVal = (r.orderCount!==null && r.orderCount!==undefined) ? String(r.orderCount) : '';
     let entry = ss.daily.find(d=>d.store===brand && d.date===r.date);
     if(!entry){
-      ss.daily.push({id:uid(), store:brand, date:r.date, amount:String(r.amount), orderCount:''});
+      ss.daily.push({id:uid(), store:brand, date:r.date, amount:String(r.amount), orderCount:orderCountVal});
     } else {
       entry.amount = String(r.amount);
+      if(orderCountVal!=='') entry.orderCount = orderCountVal;
     }
     importedCount++;
   });
@@ -2332,7 +2377,7 @@ function renderSsImportModal(){
       <div class="modal-panel" onclick="event.stopPropagation()" style="max-width:640px">
         <button class="modal-close" onclick="closeSsImportModal()" title="닫기">✕</button>
         <div class="modal-title">📥 매출 엑셀 일괄 불러오기</div>
-        <div class="modal-sub">"스토어명 · 날짜 · 매출" 3개 열로 된 엑셀을 그대로 올려주세요.</div>
+        <div class="modal-sub">"스토어명 · 날짜 · 매출액" 열이 있는 엑셀을 그대로 올려주세요. "플랫폼" 열이 있으면 스마트스토어만 자동으로 골라내고, "주문건수" 열이 있으면 같이 채워드려요.</div>
 
         ${!ssImportRows ? `
           <div style="margin-top:18px">
@@ -2343,6 +2388,7 @@ function renderSsImportModal(){
           </div>
         ` : `
           <div class="helptext" style="margin-top:14px">총 ${ssImportRows.length.toLocaleString('ko-KR')}건, ${dateRange.start} ~ ${dateRange.end} · 스토어 ${uniqueStores.length}개</div>
+          ${ssImportPlatformFiltered ? `<div class="helptext" style="margin-top:4px;color:#12805C">✅ "플랫폼" 열을 보고 스마트스토어만 남기고 쿠팡 등 다른 플랫폼은 제외했어요.</div>` : ''}
           <div class="helptext" style="margin-top:4px">이름이 다르게 되어있는 스토어는 아래에서 우리 브랜드로 맞춰주세요 (최대한 비슷한 이름을 자동으로 골라놨어요).</div>
           <div class="ss-import-mapping-list">
             ${uniqueStores.map(s=>{
