@@ -451,6 +451,9 @@
   /* ---------- 프로모션: 스프레드시트형 표 (제안리스트/선정리스트/셋팅 체크리스트) ---------- */
   .sheet-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:auto;max-height:74vh;}
   table.sheet-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;table-layout:fixed;}
+  .ss-copy-cell{cursor:pointer;transition:background .12s;}
+  .ss-copy-cell:hover{background:#EEF0F3 !important;}
+  .ss-copy-cell-flash{background:#D8F5E6 !important;color:#12805C !important;}
   table.sheet-table thead th{
     position:sticky;top:0;z-index:2;background:#F4F5F8;border-bottom:2px solid var(--border);border-right:1px solid var(--border);
     padding:8px 5px;font-size:11px;color:var(--text-secondary);font-weight:700;text-align:center;white-space:nowrap;
@@ -4292,10 +4295,10 @@ function renderSettingHelperModal(){
               ${rows.map(r=>`
                 <tr>
                   <td class="mono">${r.period}</td>
-                  <td>${r.code}</td>
+                  <td class="ss-copy-cell" onclick="copyCellValue('${String(r.code).replace(/'/g,"\\'")}', this)" title="클릭하면 복사돼요">${r.code}</td>
                   <td>${r.name}</td>
                   <td class="num mono">${r.regPrice? formatWon(r.regPrice):'-'}</td>
-                  <td class="num mono" style="background:#FFF4DE;color:#B4790A;font-weight:800">${formatWon(r.reserveDiscount)}</td>
+                  <td class="num mono ss-copy-cell" style="background:#FFF4DE;color:#B4790A;font-weight:800" onclick="copyCellValue('${Math.round(r.reserveDiscount)}', this)" title="클릭하면 복사돼요">${formatWon(r.reserveDiscount)}</td>
                   <td class="num mono">${r.instant? formatWon(r.instant):'-'}</td>
                   <td class="num mono">${r.final? formatWon(r.final):'-'}</td>
                   <td class="num mono">${r.rate===null?'-':r.rate+'%'}</td>
@@ -4305,7 +4308,7 @@ function renderSettingHelperModal(){
             </tbody>
           </table>
         </div>`}
-        <div class="helptext">금액셋팅값은 <b>등록가 − 즉시할인가</b>로 자동 계산돼요. 링크는 "복사" 버튼으로 바로 복사해서 쓰시면 돼요. "미등록"으로 뜨면 <b>프로모션 &gt; 관리</b> 화면 아래 "브랜드별 링크 관리"에서 상품링크 접두사를 먼저 등록해주세요.</div>
+        <div class="helptext">금액셋팅값은 <b>등록가 − 즉시할인가</b>로 자동 계산돼요. <b>상품코드·금액셋팅값 칸은 클릭하면 바로 복사</b>돼요. 링크는 "복사" 버튼으로 바로 복사해서 쓰시면 돼요. "미등록"으로 뜨면 <b>프로모션 &gt; 관리</b> 화면 아래 "브랜드별 링크 관리"에서 상품링크 접두사를 먼저 등록해주세요.</div>
       </div>
     </div>
   `;
@@ -6992,6 +6995,17 @@ function copyToClipboard(text, btnEl){
     const orig = btnEl.textContent;
     btnEl.textContent = '복사됨 ✓';
     setTimeout(()=>{ btnEl.textContent = orig; }, 1400);
+  }
+}
+/* 셀 자체를 클릭해서 복사할 때 쓴다. copyToClipboard()는 버튼용이라 복사 후 글자를 "복사됨"으로
+   바꿔치기하는데, 데이터가 그대로 보여야 하는 표 안 칸에 그렇게 하면 값이 사라져 보이니까,
+   대신 살짝 색이 반짝하는 것으로만 복사됐다는 걸 알려준다. */
+function copyCellValue(text, cellEl){
+  if(!text || text==='-') return;
+  copyToClipboard(text, null);
+  if(cellEl){
+    cellEl.classList.add('ss-copy-cell-flash');
+    setTimeout(()=>{ cellEl.classList.remove('ss-copy-cell-flash'); }, 500);
   }
 }
 
