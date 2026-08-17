@@ -749,6 +749,12 @@ function sanitizeStateArrays(){
   ensureWeeklyMeeting();
   ensureDraftEntries();
   ensureDeletedIds();
+  if(state.promotion){
+    ensureSortIndexes(state.promotion.proposals);
+    ensureSortIndexes(state.promotion.selections);
+    ensureSortIndexes(state.promotion.checklist);
+  }
+  if(state.live) ensureSortIndexes(state.live.schedule);
 }
 sanitizeStateArrays();
 function loadState(){
@@ -928,6 +934,39 @@ let pendingLocalPush = false; // 방금 로컬에서 바뀐 게 있는데 아직
    여러 명이 동시에 서로 다른 항목을 고쳐도, 나중에 서버와 합칠 때 항목 단위로 "누가 더 최근에 고쳤는지"
    비교해서 서로의 변경사항이 사라지지 않게 하기 위함 (전체를 통째로 덮어쓰지 않음). */
 function touch(record){ if(record) record._ts = Date.now(); return record; }
+/* 화면에 보여줄 순서를 배열에 "저장된 순서" 그대로에 맡기지 않고, 각 항목에 sortIndex라는 숫자를
+   따로 기록해서 그 값 기준으로 매번 다시 정렬한다. 왜 이렇게 하냐면:
+   - 오늘 이 컴퓨터에서 새 항목을 추가하면 로컬에서는 맨 위(unshift)로 잘 들어가지만,
+   - 그 항목이 아직 서버(Firebase)에 안 올라간 상태에서 하루가 지나 "새 세션"으로 다시 열면,
+     그 항목은 "이 세션에는 없던, 서버에만 있는 항목"이 되어서 병합 시 맨 뒤에 붙어버리는 문제가 있었다.
+   sortIndex는 일반 필드라서 다른 필드들과 똑같이 _ts 기준으로 병합되기 때문에, 배열 저장 순서가
+   어떻게 뒤섞이든 상관없이 "정렬 기준값"만 정확하면 화면에는 항상 올바른 순서로 보인다. */
+function nextSortIndex(arr){
+  if(!arr || arr.length===0) return 0;
+  const min = Math.min(...arr.map(x=>Number(x && x.sortIndex || 0)));
+  return min - 1;
+}
+function sortByOrder(arr){
+  return (arr||[]).slice().sort((a,b)=> Number((a&&a.sortIndex)||0) - Number((b&&b.sortIndex)||0));
+}
+/* 제안리스트·선정리스트는 사람이 드래그로 순서를 정하는 대신, 프로모션 시작일이 최신인 것부터
+   자동으로 위에 오도록 정렬한다. 날짜가 같으면(또는 둘 다 없으면) sortIndex로 한 번 더 정리한다. */
+function sortByStartDateDesc(arr, dateField){
+  return (arr||[]).slice().sort((a,b)=>{
+    const ad = (a && a[dateField]) || '';
+    const bd = (b && b[dateField]) || '';
+    if(ad && bd && ad!==bd) return bd.localeCompare(ad); // 최신 날짜가 위로
+    if(ad && !bd) return -1; // 날짜 있는 쪽이 위
+    if(!ad && bd) return 1;
+    return Number((a&&a.sortIndex)||0) - Number((b&&b.sortIndex)||0);
+  });
+}
+/* 기존에 sortIndex가 없던(예전에 만들어진) 항목들은, 배열에 저장되어 있던 순서를 그대로 기준으로
+   최초 sortIndex를 매겨준다 — 그래야 지금까지 보던 순서가 갑자기 안 바뀐다. */
+function ensureSortIndexes(arr){
+  if(!Array.isArray(arr)) return;
+  arr.forEach((x,i)=>{ if(x && (x.sortIndex===undefined || x.sortIndex===null)) x.sortIndex = i; });
+}
 /* 항목을 삭제할 때 배열에서 그냥 지우기만 하면, 나중에 서버에 아직 그 항목이 남아있는 스냅샷과
    병합될 때(예: 새로고침 타이밍이 안 맞았을 때) "로컬엔 없던 항목"으로 보여서 되살아나버린다.
    그래서 삭제한 항목의 id와 삭제 시각을 따로 기록해두고(무덤/tombstone), 병합할 때 그 시각 이후로
@@ -4020,12 +4059,17 @@ function sheetDropRow(e, key, targetId){
   document.querySelectorAll('.sheet-drag-over').forEach(el=>el.classList.remove('sheet-drag-over'));
   if(sheetDragKey!==key || !sheetDragId || sheetDragId===targetId){ sheetDragKey=null; sheetDragId=null; return; }
   const arr = sheetGetArray(key);
-  const fromIdx = arr.findIndex(x=>x.id===sheetDragId);
-  const toIdx = arr.findIndex(x=>x.id===targetId);
+  // 드래그는 "화면에 지금 보이는(정렬된) 순서" 기준으로 계산해야, 실제 저장 배열의 순서가
+  // 무엇이든 상관없이 사용자가 본 대로 정확히 옮겨진다.
+  const ordered = sortByOrder(arr);
+  const fromIdx = ordered.findIndex(x=>x.id===sheetDragId);
+  const toIdx = ordered.findIndex(x=>x.id===targetId);
   sheetDragKey=null; sheetDragId=null;
   if(fromIdx===-1 || toIdx===-1) return;
-  const [item] = arr.splice(fromIdx,1);
-  arr.splice(toIdx,0,item);
+  const [item] = ordered.splice(fromIdx,1);
+  ordered.splice(toIdx,0,item);
+  // 새로 정해진 화면 순서를 그대로 각 항목의 sortIndex 필드에 다시 매겨서 저장한다
+  ordered.forEach((x,i)=>{ x.sortIndex = i; touch(x); });
   saveState(); render();
 }
 function sheetDragEnd(){
@@ -4149,20 +4193,21 @@ function addChecklistFromProposalBrand(proposal, brand){
   const promo = ensurePromotion();
   const exists = promo.checklist.some(c=>c.sourceProposalId===proposal.id && c.brand===brand);
   if(exists) return;
-  promo.checklist.unshift(newChecklistEntry({
+  promo.checklist.unshift(touch(newChecklistEntry({
     promoName: proposal.promoName||'',
     brand: brand,
     owner: proposal.owner||'',
     sourceProposalId: proposal.id,
     startDate: proposal.periodStart || '',
     endDate: proposal.periodEnd || '',
-  }));
+    sortIndex: nextSortIndex(promo.checklist),
+  })));
 }
 function addSelectionFromProposalBrand(proposal, brand){
   const promo = ensurePromotion();
   const exists = promo.selections.some(s=>s.sourceProposalId===proposal.id && s.brand===brand);
   if(exists) return;
-  promo.selections.unshift({
+  promo.selections.unshift(touch({
     id: uid(),
     startDate: proposal.periodStart || '',
     endDate: proposal.periodEnd || '',
@@ -4170,11 +4215,12 @@ function addSelectionFromProposalBrand(proposal, brand){
     exposureSlot: '', exposureDate: '', brand: brand,
     products: [{id:uid(), code:'', name:'', regPrice:'', instantDiscountPrice:'', finalBenefitPrice:''}],
     sourceProposalId: proposal.id,
-  });
+    sortIndex: nextSortIndex(promo.selections),
+  }));
 }
 function addChecklistEntry(){
   const promo = ensurePromotion();
-  promo.checklist.unshift(newChecklistEntry());
+  promo.checklist.unshift(touch(newChecklistEntry({sortIndex: nextSortIndex(promo.checklist)})));
   saveState(); render();
 }
 function deleteChecklistEntry(id){
@@ -4318,7 +4364,7 @@ function renderPromoSettings(){
   const promo = ensurePromotion();
   const colLabels = ['','프로모션명','브랜드','담당자','셋팅기한', ...CHECKLIST_STATUS_FIELDS.map(f=>f.label), '캡쳐','','종료'];
   const brandsInUse = brandsInUseFor(promo.checklist);
-  const visibleChecklist = promo.checklist.filter(c=> !c.brand || isBrandVisibleIn('checklistFilter', c.brand));
+  const visibleChecklist = sortByOrder(promo.checklist).filter(c=> !c.brand || isBrandVisibleIn('checklistFilter', c.brand));
 
   return `
     <div class="page-header">
@@ -5134,13 +5180,14 @@ function renderPromoCalendar(){
 function addPromoProposal(){
   const promo = ensurePromotion();
   const newId = uid();
-  promo.proposals.unshift({
+  promo.proposals.unshift(touch({
     id: newId,
     proposeDate: todayStr(),
     periodStart: '', periodEnd: '',
     brand: '', brands: [], promoName: '', grade: '',
     owner: '', proposeDone: false, selectedDone: false, selectedBrands: {}, link: '',
-  });
+    sortIndex: nextSortIndex(promo.proposals),
+  }));
   saveState(); render();
   scheduleSheetSync(newId);
   scheduleCalendarSync('propose', newId);
@@ -5545,7 +5592,7 @@ function renderProposalSheet(rows, opts){
 function renderPromoProposals(){
   const promo = ensurePromotion();
   const brandsInUse = brandsInUseFor(promo.proposals);
-  const visibleRows = promo.proposals.filter(p=>{
+  const visibleRows = sortByStartDateDesc(promo.proposals, 'periodStart').filter(p=>{
     const pBrands = p.brands && p.brands.length ? p.brands : (p.brand?[p.brand]:[]);
     if(pBrands.length===0) return true;
     return pBrands.some(b=>isBrandVisibleIn('proposalFilter', b));
@@ -5555,7 +5602,7 @@ function renderPromoProposals(){
       <div>
         <span class="eyebrow" style="background:#F0932B22;color:#F0932B">프로모션</span>
         <h1>제안리스트</h1>
-        <div class="sub">⠿ 손잡이를 드래그하면 순서를 바꿀 수 있어요 · 새 제안은 맨 위에 추가됩니다 · 브랜드는 여러 개 추가할 수 있고, 선정완료는 브랜드별로 따로 체크해요</div>
+        <div class="sub">📅 프로모션 시작일이 최신인 순서로 자동 정렬돼요 · 브랜드는 여러 개 추가할 수 있고, 선정완료는 브랜드별로 따로 체크해요</div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn ghost" style="color:var(--text-primary)" onclick="navigate('promo_manage')">⚙ 브랜드·담당자 관리</button>
@@ -5576,11 +5623,12 @@ function calcDiscountRate(regPrice, finalPrice){
 function addSelectionEntry(){
   const promo = ensurePromotion();
   const newId = uid();
-  promo.selections.unshift({
+  promo.selections.unshift(touch({
     id: newId,
     startDate:'', endDate:'', promoName:'', exposureSlot:'', exposureDate:'', brand:'',
     products: [{id:uid(), code:'', name:'', regPrice:'', instantDiscountPrice:'', finalBenefitPrice:''}],
-  });
+    sortIndex: nextSortIndex(promo.selections),
+  }));
   saveState(); render();
   scheduleSelectionSheetSync(newId);
 }
@@ -5798,7 +5846,7 @@ function renderPromoSelected(){
   migrateSelectionsColWidthsOnce();
   const promo = ensurePromotion();
   const brandsInUse = brandsInUseFor(promo.selections);
-  const visibleSelections = promo.selections.filter(s=> !s.brand || isBrandVisibleIn('selectionFilter', s.brand));
+  const visibleSelections = sortByStartDateDesc(promo.selections, 'startDate').filter(s=> !s.brand || isBrandVisibleIn('selectionFilter', s.brand));
   const visibleIds = visibleSelections.map(s=>s.id);
   const allChecked = visibleIds.length>0 && visibleIds.every(id=>selectedSelectionIds.has(id));
   const checkedCount = visibleIds.filter(id=>selectedSelectionIds.has(id)).length;
@@ -5812,7 +5860,7 @@ function renderPromoSelected(){
       <div>
         <span class="eyebrow" style="background:#22A6B322;color:#22A6B3">프로모션</span>
         <h1>선정리스트</h1>
-        <div class="sub">제안리스트와 무관한 별도 데이터 · ⠿ 드래그로 순서 변경 · 상품코드 칸에 엑셀 여러 행을 그대로 붙여넣을 수 있어요</div>
+        <div class="sub">제안리스트와 무관한 별도 데이터 · 📅 시작일이 최신인 순서로 자동 정렬돼요 · 상품코드 칸에 엑셀 여러 행을 그대로 붙여넣을 수 있어요</div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn ghost" style="color:var(--text-primary)" onclick="navigate('promo_manage')">⚙ 브랜드 관리</button>
@@ -6031,7 +6079,7 @@ function renderLiveBrandFilterBar(brands){
 function addLiveSchedule(){
   const live = ensureLive();
   const newId = uid();
-  live.schedule.unshift({id:newId, date:'', time:'', liveId:'', brand:'', content:''});
+  live.schedule.unshift(touch({id:newId, date:'', time:'', liveId:'', brand:'', content:'', sortIndex: nextSortIndex(live.schedule)}));
   saveState(); render();
 }
 function deleteLiveSchedule(id){
