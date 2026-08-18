@@ -4997,7 +4997,7 @@ function handleCalendarSync(data) {
 /* ---- 캘린더 ---- */
 let promoCalView = null; // {y,m} — 선정캘린더용, 새로고침 시 이번 달로 리셋
 let promoProposeCalView = null; // {y,m} — 제안캘린더용, 새로고침 시 이번 달로 리셋
-let promoCalTab = 'selected'; // 'selected' | 'propose' — 현재 열려있는 캘린더 탭
+let promoCalTab = 'selected'; // 'selected' | 'propose' | 'live' — 현재 열려있는 캘린더 탭
 function ensurePromoCalView(){
   if(!promoCalView){ const t=new Date(); promoCalView={y:t.getFullYear(), m:t.getMonth()+1}; }
   return promoCalView;
@@ -5065,13 +5065,80 @@ function buildPromoCalGrid(y, m, eventsOnDay, renderChip){
 
 function renderPromoCalendar(){
   const promo = ensurePromotion();
-  const isSelected = promoCalTab!=='propose';
+  const isSelected = promoCalTab==='selected';
+  const isLive = promoCalTab==='live';
+  const isPropose = !isSelected && !isLive;
 
   const tabsHtml = `
     <div class="promo-cal-tabs">
       <button class="promo-cal-tab ${isSelected?'active':''}" onclick="switchPromoCalTab('selected')">선정캘린더</button>
-      <button class="promo-cal-tab ${!isSelected?'active':''}" onclick="switchPromoCalTab('propose')">제안캘린더</button>
+      <button class="promo-cal-tab ${isPropose?'active':''}" onclick="switchPromoCalTab('propose')">제안캘린더</button>
+      <button class="promo-cal-tab ${isLive?'active':''}" onclick="switchPromoCalTab('live')">라이브캘린더</button>
     </div>`;
+
+  if(isLive){
+    const live = ensureLive();
+    const view = ensureLiveCalView();
+    const y = view.y, m = view.m;
+    const allBrandsInUse = brandsInUseFor(live.schedule);
+
+    function eventsOnDay(dateStr){
+      return live.schedule.filter(s=>{
+        if(s.date !== dateStr) return false;
+        if(s.brand && !isLiveBrandVisible(s.brand)) return false;
+        return true;
+      }).sort((a,b)=> (a.time||'').localeCompare(b.time||''));
+    }
+    const renderChip = ev=>{
+      const label = `${ev.brand||'(브랜드 미정)'}(${ev.time||'-'})`;
+      const chipColor = promoBrandColor(ev.brand||'');
+      const heart = ev.content ? ' <span style="color:#2F6FED">💙</span>' : '';
+      return `
+        <div class="promo-cal-chip" style="background:${chipColor}22;color:${chipColor}" title="${label}${ev.content?' · '+ev.content:''}">
+          <span class="promo-cal-chip-dot" style="background:${chipColor}"></span>${label}${heart}
+        </div>`;
+    };
+
+    return `
+      <div class="page-header">
+        <div>
+          <span class="eyebrow" style="background:#00B8A922;color:#00B8A9">프로모션</span>
+          <h1>캘린더</h1>
+          <div class="sub">라이브 메뉴의 라이브 일정을 그대로 보여줘요 · 브랜드를 체크하면 원하는 브랜드만 볼 수 있어요</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button class="btn ghost" onclick="liveCalPrev()" style="color:var(--text-primary)">◀</button>
+          <div style="font-weight:800;font-size:15px;min-width:96px;text-align:center">${y}년 ${m}월</div>
+          <button class="btn ghost" onclick="liveCalNext()" style="color:var(--text-primary)">▶</button>
+          <button class="btn ghost" onclick="liveCalToday()" style="color:var(--text-primary)">오늘</button>
+        </div>
+      </div>
+
+      ${tabsHtml}
+
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:4px">
+          <h2 style="margin:0">브랜드 필터</h2>
+          <div style="display:flex;gap:6px">
+            <button class="copy-btn" onclick="setAllLiveBrandFilter(true)">전체 선택</button>
+            <button class="copy-btn" onclick="setAllLiveBrandFilter(false)">전체 해제</button>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:12px">
+          ${allBrandsInUse.length===0 ? `<span class="empty" style="padding:8px 0">등록된 브랜드가 없습니다.</span>` : allBrandsInUse.map(b=>`
+            <label class="side-item" style="padding:6px 8px;margin:0;cursor:pointer">
+              <input type="checkbox" ${isLiveBrandVisible(b)?'checked':''} onclick="toggleLiveBrandFilter('${b.replace(/'/g,"\\'")}')">
+              <span class="lbl" style="display:flex;align-items:center;gap:6px">
+                <span style="width:8px;height:8px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block;flex-shrink:0"></span>${b}
+              </span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="card">${buildPromoCalGrid(y, m, eventsOnDay, renderChip)}</div>
+    `;
+  }
 
   if(isSelected){
     const view = ensurePromoCalView();
