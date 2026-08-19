@@ -3228,6 +3228,25 @@ function applyBaseDateToAllVisible(){
   });
   saveState(); render();
 }
+/* 현재고·평균출고량·기준일 칸이 <input>이라서, 브랜드부터 입고수(BOX)까지 마우스로 드래그해서
+   긁어 복사하는 게 브라우저 특성상 잘 안 먹힌다(입력칸 경계에서 선택이 끊김). 그래서 표 전체를
+   엑셀에 그대로 붙여넣기 좋은 탭(TSV) 형식으로 클립보드에 복사하는 버튼을 따로 만들었다. */
+function copyFulfillmentTable(btnEl){
+  const f = ensureFulfillment();
+  const visibleItems = f.items.filter(it=> !it.brand || isFulfillmentBrandVisible(it.brand));
+  if(visibleItems.length===0){ alert('복사할 품목이 없어요.'); return; }
+  const header = ['브랜드','상품코드','상품바코드','상품명','입수량','현재고','평균출고량','기준일','입고수량(EA)','입고수(BOX)'];
+  const lines = [header.join('\t')];
+  visibleItems.forEach(it=>{
+    const {ea, box} = calcInbound(it.avgOutbound, it.baseDate, it.currentStock, it.packQty);
+    lines.push([
+      it.brand||'', it.itemCode||'', it.itemBarcode||'', it.itemName||'',
+      it.packQty||'', it.currentStock||'', it.avgOutbound||'', it.baseDate||'',
+      ea===null?'':ea, box===null?'':box,
+    ].join('\t'));
+  });
+  copyToClipboard(lines.join('\n'), btnEl);
+}
 function localDateStr(d){
   const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${dd}`;
@@ -3323,7 +3342,8 @@ function renderFulfillmentInboundCalc(){
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
         <h2 style="margin:0">입고량 계산</h2>
-        <div style="display:flex;gap:6px;align-items:flex-end">
+        <div style="display:flex;gap:8px;align-items:flex-end">
+          <button class="btn ghost" id="fulfillCopyAllBtn" style="color:var(--text-primary)" onclick="copyFulfillmentTable(this)">📋 표 전체 복사</button>
           <div class="field"><label style="display:block;font-size:11px;color:var(--text-secondary);font-weight:600;margin-bottom:4px">기준일 일괄 적용</label>
             <input type="number" id="bulkBaseDateInput" placeholder="예: 30" style="width:90px;border:1px solid var(--border);border-radius:8px;padding:9px 10px;font-size:13.5px;font-family:inherit">
           </div>
