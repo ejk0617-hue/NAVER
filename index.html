@@ -329,6 +329,9 @@
   .ssc-batch-result-card{border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:14px;background:#fff;}
 
   .ss-import-mapping-list{display:flex;flex-direction:column;gap:6px;margin-top:12px;max-height:340px;overflow-y:auto;padding-right:4px;}
+  .proposal-add-form{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px;}
+  .proposal-add-form .field label{display:block;font-size:11.5px;font-weight:700;color:var(--text-secondary);margin-bottom:5px;}
+  .proposal-add-form .row-input{border:1px solid var(--border);border-radius:8px;padding:8px 10px;}
   .ss-import-mapping-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--bg);}
   .ss-import-mapping-row.unmapped{background:#FFE4E7;}
   .ss-import-source-name{flex:1;min-width:0;font-size:12.5px;font-weight:700;}
@@ -5286,6 +5289,126 @@ function addPromoProposal(){
   scheduleSheetSync(newId);
   scheduleCalendarSync('propose', newId);
 }
+/* ---- 제안 추가 팝업: 프로모션 기간을 미리 입력받아서, 등록하는 순간 바로 올바른(최신순) 자리에 들어가게 한다.
+   예전엔 빈 채로 만들고 나중에 기간을 채우면 그제서야 자리를 찾아가서 "화면이 갑자기 움직인다"는
+   불편함이 있었다. */
+let proposalAddModalOpen = false;
+let proposalAddDraft = null;
+function newProposalDraft(){
+  return {
+    proposeDate: todayStr(),
+    periodStart: '', periodEnd: '',
+    brands: [], promoName: '', grade: '', owner: '',
+  };
+}
+function openProposalAddModal(){
+  proposalAddModalOpen = true;
+  proposalAddDraft = newProposalDraft();
+  render();
+}
+function closeProposalAddModal(){
+  proposalAddModalOpen = false;
+  proposalAddDraft = null;
+  render();
+}
+function updateProposalDraftField(field, value){
+  if(!proposalAddDraft) return;
+  proposalAddDraft[field] = value;
+}
+function addProposalDraftBrand(brand){
+  if(!proposalAddDraft || !brand) return;
+  if(!proposalAddDraft.brands.includes(brand)) proposalAddDraft.brands.push(brand);
+  render();
+}
+function removeProposalDraftBrand(brand){
+  if(!proposalAddDraft) return;
+  proposalAddDraft.brands = proposalAddDraft.brands.filter(b=>b!==brand);
+  render();
+}
+function submitProposalAdd(){
+  if(!proposalAddDraft) return;
+  const promo = ensurePromotion();
+  const newId = uid();
+  promo.proposals.unshift(touch({
+    id: newId,
+    proposeDate: proposalAddDraft.proposeDate || todayStr(),
+    periodStart: proposalAddDraft.periodStart || '',
+    periodEnd: proposalAddDraft.periodEnd || '',
+    brand: '', brands: proposalAddDraft.brands.slice(),
+    promoName: proposalAddDraft.promoName || '',
+    grade: proposalAddDraft.grade || '',
+    owner: proposalAddDraft.owner || '',
+    proposeDone: false, selectedDone: false, selectedBrands: {}, link: '',
+    sortIndex: nextSortIndex(promo.proposals),
+  }));
+  proposalAddModalOpen = false;
+  proposalAddDraft = null;
+  saveState(); render();
+  scheduleSheetSync(newId);
+  scheduleCalendarSync('propose', newId);
+}
+function renderProposalAddModal(){
+  if(!proposalAddModalOpen || !proposalAddDraft) return '';
+  const promo = ensurePromotion();
+  const d = proposalAddDraft;
+  const addableBrands = promo.brands.filter(b=>b && !d.brands.includes(b));
+  return `
+    <div class="modal-overlay" onclick="closeProposalAddModal()">
+      <div class="modal-panel" onclick="event.stopPropagation()" style="max-width:520px">
+        <button class="modal-close" onclick="closeProposalAddModal()" title="닫기">✕</button>
+        <div class="modal-title">📝 새 제안 추가</div>
+        <div class="modal-sub">프로모션 기간을 먼저 넣으면, 등록하자마자 최신순 자리에 바로 들어가요.</div>
+
+        <div class="proposal-add-form">
+          <div class="field">
+            <label>제안마감일</label>
+            <input type="date" class="row-input ssc-left" value="${d.proposeDate||''}" onchange="updateProposalDraftField('proposeDate', this.value)">
+          </div>
+          <div class="field">
+            <label>프로모션 시작일</label>
+            <input type="date" class="row-input ssc-left" value="${d.periodStart||''}" onchange="updateProposalDraftField('periodStart', this.value)">
+          </div>
+          <div class="field">
+            <label>프로모션 종료일</label>
+            <input type="date" class="row-input ssc-left" value="${d.periodEnd||''}" onchange="updateProposalDraftField('periodEnd', this.value)">
+          </div>
+          <div class="field">
+            <label>등급</label>
+            <select class="row-input ssc-left" onchange="updateProposalDraftField('grade', this.value)">
+              <option value="">-</option>
+              ${PROMO_GRADE_OPTIONS.map(g=>`<option value="${g}" ${g===d.grade?'selected':''}>${g}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <label>브랜드</label>
+            <div class="brand-multi">
+              <div class="brand-multi-chips">
+                ${d.brands.map(b=>`<span class="mini-chip">${b}<button class="mini-chip-x" onclick="removeProposalDraftBrand('${b.replace(/'/g,"\\'")}')">✕</button></span>`).join('')}
+              </div>
+              <select class="row-input" style="margin-top:4px" onchange="addProposalDraftBrand(this.value); this.value='';">
+                <option value="">+ 브랜드 추가</option>
+                ${addableBrands.map(b=>`<option value="${b}">${b}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <label>프로모션명</label>
+            <input type="text" class="row-input ssc-left" placeholder="프로모션명" value="${d.promoName||''}" onchange="updateProposalDraftField('promoName', this.value)">
+          </div>
+          <div class="field">
+            <label>제안담당자</label>
+            <select class="row-input ssc-left" onchange="updateProposalDraftField('owner', this.value)">
+              <option value="">선택</option>
+              ${promoOptionSet(promo.owners, d.owner).map(o=>`<option value="${o}" ${o===d.owner?'selected':''}>${o}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <button class="btn" style="width:100%;margin-top:18px" onclick="submitProposalAdd()">✅ 등록</button>
+      </div>
+    </div>
+  `;
+}
 /* ---- 구글 스프레드시트 자동 연동 ----
    제안리스트에 새 항목이 생기거나 내용이 바뀌면, 등록해둔 구글 앱스스크립트 웹앱 주소로
    그 항목의 내용을 보내서 시트에 자동으로 기입/갱신되도록 한다. (관리 페이지에서 주소 등록) */
@@ -5700,11 +5823,12 @@ function renderPromoProposals(){
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn ghost" style="color:var(--text-primary)" onclick="navigate('promo_manage')">⚙ 브랜드·담당자 관리</button>
-        <button class="btn" onclick="addPromoProposal()">+ 새 제안 추가</button>
+        <button class="btn" onclick="openProposalAddModal()">+ 새 제안 추가</button>
       </div>
     </div>
     ${renderBrandFilterBar('proposalFilter', brandsInUse)}
     ${renderProposalSheet(visibleRows, {emptyText: promo.proposals.length===0 ? '등록된 제안이 없습니다. 오른쪽 위 버튼으로 추가해보세요.' : '필터 조건에 맞는 제안이 없습니다.'})}
+    ${renderProposalAddModal()}
   `;
 }
 
