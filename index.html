@@ -5074,7 +5074,7 @@ function handleSelectionSync(ss, data) {
   var sheet = ss.getSheets().filter(function(s){ return s.getSheetId() === targetGid; })[0];
   if (!sheet) sheet = ss.getSheets()[0];
 
-  var header = ['행키','시작일','종료일','프로모션명','노출구좌','노출일','브랜드','상품코드','상품명','등록가','즉시할인가','최종혜택가','할인율','목표매출','행사매출'];
+  var header = ['행키','시작일','종료일','프로모션명','노출구좌','노출일','브랜드','상품코드','상품명','등록가','즉시할인가','최종혜택가','할인율','등급','목표매출','행사매출'];
   if (sheet.getLastRow() === 0) sheet.appendRow(header);
 
   var lastRow = sheet.getLastRow();
@@ -5099,7 +5099,7 @@ function handleSelectionSync(ss, data) {
       r.rowKey, r.startDate || '', r.endDate || '', r.promoName || '', r.exposureSlot || '',
       r.exposureDate || '', r.brand || '', r.code || '', r.name || '',
       r.regPrice || '', r.instantDiscountPrice || '', r.finalBenefitPrice || '', r.rate || '',
-      r.targetSales || '', r.eventSales || ''
+      r.grade || '', r.targetSales || '', r.eventSales || ''
     ];
     var idx = allKeys.indexOf(r.rowKey);
     if (idx >= 0) {
@@ -5689,12 +5689,16 @@ function scheduleSelectionSheetSync(entryId){
 async function resyncSelectionEntryToSheet(entryId){
   const url = (ensurePromotion().sheetSyncUrl||'').trim();
   if(!url) return;
-  const s = ensurePromotion().selections.find(x=>x.id===entryId);
+  const promo = ensurePromotion();
+  const s = promo.selections.find(x=>x.id===entryId);
   const checklistEntry = s ? findChecklistForSelection(s) : null;
   const targetSales = checklistEntry ? (checklistEntry.targetSales||'') : '';
   const eventSales = checklistEntry ? (checklistEntry.eventSales||'') : '';
+  // 등급은 선정리스트 자체엔 없는 값이라, 이 항목을 만들어낸 원본 제안(제안리스트)에서 가져온다
+  const sourceProposal = (s && s.sourceProposalId) ? promo.proposals.find(p=>p.id===s.sourceProposalId) : null;
+  const grade = sourceProposal ? (sourceProposal.grade||'') : '';
   // 항목이 이미 삭제됐으면 rows를 빈 배열로 보내서 시트에 남아있던 그 항목의 행들도 같이 지운다
-  const rows = s ? (s.products||[]).map(p=>{
+  const rows = s ? (s.products||[]).map((p,i)=>{
     const rate = calcDiscountRate(p.regPrice, p.finalBenefitPrice);
     return {
       rowKey: `${s.id}_${p.id}`,
@@ -5703,7 +5707,9 @@ async function resyncSelectionEntryToSheet(entryId){
       code: p.code||'', name: p.name||'',
       regPrice: p.regPrice||'', instantDiscountPrice: p.instantDiscountPrice||'', finalBenefitPrice: p.finalBenefitPrice||'',
       rate: rate===null ? '' : rate+'%',
-      targetSales, eventSales,
+      grade: i===0 ? grade : '',
+      targetSales: i===0 ? targetSales : '',
+      eventSales: i===0 ? eventSales : '',
     };
   }) : [];
   const payload = { type:'selection', action:'resyncEntry', entryId, rows };
