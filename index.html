@@ -428,6 +428,30 @@
   /* ---------- 셋팅도우미 팝업 ---------- */
   .modal-overlay{position:fixed;inset:0;background:rgba(10,14,25,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:24px;}
   .modal-panel{background:#fff;border-radius:16px;max-width:1220px;width:96%;max-height:90vh;overflow-y:auto;padding:28px 30px;position:relative;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+  .guide-modal{max-width:720px;padding:0 0 24px;}
+  .guide-modal .modal-close{z-index:5;background:rgba(255,255,255,.85);border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;}
+  .guide-banner{background:linear-gradient(135deg,#4CC98A,#2E9E68);color:#fff;padding:26px 30px;border-radius:16px 16px 0 0;margin:0 0 20px;}
+  .guide-section{padding:0 30px;margin-bottom:22px;}
+  .guide-h1{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:800;color:#3A3F3A;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #EAFBF1;}
+  .guide-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:#4CC98A;color:#fff;font-size:12px;font-weight:800;flex-shrink:0;}
+  .guide-h2{font-size:14px;font-weight:800;color:#2E9E68;margin:16px 0 8px;}
+  .guide-section p{font-size:13px;color:#3A3F3A;line-height:1.6;margin:0 0 10px;}
+  .guide-tip{background:#FFF7E6;border-left:3px solid #F7B266;border-radius:8px;padding:10px 14px;font-size:12.5px;color:#3A3F3A;line-height:1.6;}
+  .guide-cat-row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;}
+  .guide-cat-card{border-radius:12px;padding:14px 8px;text-align:center;}
+  .guide-cat-card .emoji{font-size:22px;margin-bottom:4px;}
+  .guide-cat-card .title{font-size:12px;font-weight:800;margin-bottom:6px;}
+  .guide-cat-card .items{font-size:10.5px;color:#9AA69C;line-height:1.6;}
+  .guide-flow-row{display:flex;align-items:stretch;gap:8px;margin-bottom:4px;}
+  .guide-flow-box{flex:1;border-radius:9px;padding:10px 12px;font-size:12px;font-weight:700;text-align:center;line-height:1.45;}
+  .guide-flow-box.from{background:#F7F8F6;color:#3A3F3A;border:1px solid #E7EBE7;}
+  .guide-flow-box.to{background:#F0FBF4;color:#2E9E68;border:1px solid #A8E8C4;}
+  .guide-flow-arrow{display:flex;align-items:center;color:#4CC98A;font-weight:800;font-size:15px;flex-shrink:0;}
+  .guide-flow-note{font-size:11px;color:#9AA69C;font-style:italic;margin:2px 0 12px 2px;}
+  .guide-ul{list-style:none;padding:0;margin:0 0 6px;}
+  .guide-ul li{font-size:12.5px;color:#3A3F3A;line-height:1.6;margin-bottom:6px;padding-left:14px;position:relative;}
+  .guide-ul li::before{content:'•';position:absolute;left:0;color:#9AA69C;}
+  @media (max-width:700px){ .guide-cat-row{grid-template-columns:repeat(3,1fr);} .guide-flow-row{flex-direction:column;} .guide-flow-arrow{transform:rotate(90deg);justify-content:center;padding:2px 0;} }
   .modal-close{position:absolute;top:16px;right:16px;background:#F4F5F8;border:none;width:32px;height:32px;border-radius:50%;font-size:15px;cursor:pointer;color:var(--text-secondary);}
   .modal-close:hover{background:#EEF0F3;color:var(--text-primary);}
   .modal-title{font-size:19px;font-weight:800;margin:0 0 4px;padding-right:40px;}
@@ -2409,6 +2433,132 @@ function runSsImport(){
   render();
   alert(`${importedCount.toLocaleString('ko-KR')}일치 매출을 매출 대시보드에 반영했어요.${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
 }
+/* ---------- 사용설명서 팝업 ---------- */
+let guideModalOpen = false;
+function openGuideModal(){ guideModalOpen = true; render(); }
+function closeGuideModal(){ guideModalOpen = false; render(); }
+function guideFlow(from, to, note){
+  return `
+    <div class="guide-flow-row">
+      <div class="guide-flow-box from">${from}</div>
+      <div class="guide-flow-arrow">➜</div>
+      <div class="guide-flow-box to">${to}</div>
+    </div>
+    ${note ? `<div class="guide-flow-note">🌱 ${note}</div>` : ''}
+  `;
+}
+function renderGuideModal(){
+  if(!guideModalOpen) return '';
+  return `
+    <div class="modal-overlay" onclick="closeGuideModal()">
+      <div class="modal-panel guide-modal" onclick="event.stopPropagation()">
+        <button class="modal-close" onclick="closeGuideModal()" title="닫기">✕</button>
+        <div class="guide-banner">
+          <div style="font-size:22px;font-weight:800">🌿 NAVER 업무 관리 프로그램</div>
+          <div style="font-size:14px;font-weight:700;margin-top:4px">✨ 사용 설명서</div>
+          <div style="font-size:12.5px;margin-top:6px;opacity:.9">처음 쓰는 사람도 5분이면 감 잡을 수 있게</div>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-h1"><span class="guide-num">1</span> 이 프로그램은 뭔가요</div>
+          <p>네이버 스마트스토어 광고비 · 프로모션 제안/선정 · 라이브 방송 · 입고량 · 매출을 한 곳에서 관리하는 웹앱이에요. 인터넷 없이 파일 하나(index.html)로 작동하고, 필요하면 구글(Firebase)에 연결해서 팀원들과 실시간으로 데이터를 같이 볼 수 있어요.</p>
+          <div class="guide-tip">⭐ <b>가장 중요한 한 가지</b><br>여러 메뉴가 서로 연결되어 있어서, 한 군데 입력하면 다른 화면에 자동으로 나타나요. 아래에서 그 흐름을 보여드릴게요.</div>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-h1"><span class="guide-num">2</span> 전체 구조 한눈에 보기</div>
+          <div class="guide-cat-row">
+            <div class="guide-cat-card" style="background:#F5F0FE"><div class="emoji">📢</div><div class="title" style="color:#B497F0">광고</div><div class="items">쇼검·GFA<br>스스광고<br>브랜드검색<br>비즈월렛</div></div>
+            <div class="guide-cat-card" style="background:#FFF0F5"><div class="emoji">🎀</div><div class="title" style="color:#F599B8">프로모션</div><div class="items">캘린더<br>제안/선정리스트<br>셋팅·통계<br>관리</div></div>
+            <div class="guide-cat-card" style="background:#ECFAF8"><div class="emoji">🎥</div><div class="title" style="color:#5FCBC0">라이브</div><div class="items">캘린더<br>라이브 일정</div></div>
+            <div class="guide-cat-card" style="background:#FFF6EA"><div class="emoji">📦</div><div class="title" style="color:#F7B266">풀필먼트</div><div class="items">입고량 계산<br>품목 데이터</div></div>
+            <div class="guide-cat-card" style="background:#EFF5FE"><div class="emoji">🛍️</div><div class="title" style="color:#7FAEF5">스마트스토어</div><div class="items">매출 대시보드<br>주간미팅<br>매출계산기</div></div>
+          </div>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-h1"><span class="guide-num">3</span> 핵심! 데이터가 어떻게 연결되는지</div>
+          <p><b>아래 박스를 따라가면, "여기 입력하면 저기 자동으로 뜨는구나"를 한 번에 이해할 수 있어요.</b></p>
+
+          <div class="guide-h2">🎀 제안 → 선정 → 셋팅으로 이어지는 흐름</div>
+          ${guideFlow('제안리스트에서 브랜드별<br>"선정완료" 체크', '셋팅 + 선정리스트에<br>항목 자동 생성', '수동으로 다시 만들 필요 없어요')}
+          ${guideFlow('선정리스트에<br>상품코드 · 기간 입력', '매출계산기 "자동 불러오기"에서<br>그대로 가져다 씀')}
+          ${guideFlow('매출계산기에서 계산 후<br>"셋팅에 반영"', '셋팅도우미 행사매출 칸 +<br>통계 페이지 선정 내역')}
+          ${guideFlow('제안 · 선정 · 셋팅 ·<br>라이브 일정', '프로모션 &gt; 캘린더<br>(제안 · 선정 · 라이브 3개 탭)', '한 달 일정을 한눈에 봐요')}
+
+          <div class="guide-h2">🛍️ 매출계산기 — 엑셀만 넣으면 자동 계산</div>
+          ${guideFlow('선정리스트에서<br>브랜드 + 행사 선택', '상품코드 · 행사기간이<br>자동으로 채워짐')}
+          ${guideFlow('스마트스토어 주문 엑셀<br>업로드 (최대 2개)', '선정 상품 · 행사기간에 맞는<br>주문만 걸러 매출 계산')}
+          ${guideFlow('계산 결과의<br>"셋팅에 반영" 버튼', '셋팅 · 통계 페이지에<br>매출 금액 자동 기록')}
+
+          <div class="guide-h2">📊 스마트스토어 매출 대시보드</div>
+          ${guideFlow('"엑셀로 일괄 불러오기"<br>버튼 클릭', '브랜드별 · 일별 매출<br>엑셀을 통째로 반영', '브랜드명 표기가 달라도 자동으로 맞춰줘요')}
+          ${guideFlow('일간 매출 입력<br>달력에 직접 입력', '주간 · 월간 목표<br>달성률 자동 계산')}
+
+          <div class="guide-h2">🔗 외부 서비스 연동 (설정한 경우에만)</div>
+          ${guideFlow('제안 · 선정리스트<br>작성/수정', '구글 스프레드시트에<br>자동 반영', '프로모션 &gt; 관리에서 연동 설정')}
+          ${guideFlow('제안 · 선정 · 라이브<br>캘린더에 일정 등록', '구글 캘린더에도<br>자동으로 이벤트 생성', '프로모션 &gt; 관리에서 연동 설정')}
+          ${guideFlow('여러 명이 같이<br>프로그램 사용', '클라우드 동기화 켜면<br>실시간으로 데이터 공유', '사이드바 하단 "클라우드 동기화 설정"')}
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-h1"><span class="guide-num">4</span> 메뉴별 간단 사용법</div>
+
+          <div class="guide-h2" style="color:#B497F0">📢 광고 카테고리</div>
+          <ul class="guide-ul">
+            <li><b style="color:#B497F0">쇼핑검색광고 · GFA · 스스광고 · 브랜드검색</b> 계정 · 브랜드별로 광고비 충전 내역을 기록해요.</li>
+            <li><b style="color:#B497F0">비즈월렛</b> 브랜드별 잔액을 관리하고, 5만원 이하로 떨어지면 대시보드 상단에 경고가 떠요.</li>
+            <li>사이드바 ➕ 버튼으로 브랜드 · 계정을 직접 추가/삭제할 수 있어요.</li>
+          </ul>
+
+          <div class="guide-h2" style="color:#F599B8">🎀 프로모션 카테고리</div>
+          <ul class="guide-ul">
+            <li><b style="color:#F599B8">캘린더</b> 선정 · 제안 · 라이브 3개 탭으로 한 달 일정을 달력으로 봐요.</li>
+            <li><b style="color:#F599B8">제안리스트</b> "+ 새 제안 추가"를 누르면 팝업이 뜨고, 기간을 넣고 등록하면 최신순으로 자동 정렬돼요. 브랜드별로 "선정완료"를 체크하면 셋팅 · 선정리스트가 자동 생성돼요.</li>
+            <li><b style="color:#F599B8">선정리스트</b> 확정된 프로모션의 상품 정보(상품코드 · 가격 등)를 관리해요. 엑셀에서 여러 행을 그대로 붙여넣을 수 있어요.</li>
+            <li><b style="color:#F599B8">코드조회</b> 상품코드로 과거 선정 이력을 빠르게 찾아봐요.</li>
+            <li><b style="color:#F599B8">셋팅</b> 셋팅 진행 상태를 체크리스트로 관리해요. 🔧 버튼(셋팅도우미)을 누르면 상품 정보와 함께 클릭 한 번으로 복사할 수 있는 팝업이 열려요.</li>
+            <li><b style="color:#F599B8">통계</b> 브랜드 · 월 · 등급별로 제안 대비 선정 현황과 행사매출을 한눈에 봐요.</li>
+            <li><b style="color:#F599B8">관리</b> 브랜드 · 담당자 목록, 구글 스프레드시트 · 구글 캘린더 연동을 설정해요.</li>
+          </ul>
+
+          <div class="guide-h2" style="color:#5FCBC0">🎥 라이브 카테고리</div>
+          <ul class="guide-ul">
+            <li><b style="color:#5FCBC0">캘린더</b> 라이브 방송 일정을 달력으로 봐요.</li>
+            <li><b style="color:#5FCBC0">라이브 일정</b> 방송 날짜 · 시간 · 브랜드 · 내용을 등록해요.</li>
+          </ul>
+
+          <div class="guide-h2" style="color:#F7B266">📦 풀필먼트 카테고리</div>
+          <ul class="guide-ul">
+            <li><b style="color:#F7B266">입고량 계산</b> 현재고 · 평균출고량 · 기준일을 넣으면 필요한 입고 수량이 자동 계산돼요. CJ 재고 엑셀을 올리면 현재고 · 평균출고량이 자동으로 채워져요.</li>
+            <li><b style="color:#F7B266">품목 데이터</b> 상품코드 · 바코드 · 입수량 등 기본 정보를 관리해요.</li>
+          </ul>
+
+          <div class="guide-h2" style="color:#7FAEF5">🛍️ 스마트스토어 카테고리</div>
+          <ul class="guide-ul">
+            <li><b style="color:#7FAEF5">매출 대시보드</b> 브랜드별 일간 매출을 달력에 입력하고, 목표 달성률 · 행사 캘린더를 봐요.</li>
+            <li><b style="color:#7FAEF5">주간미팅</b> 월요일~일요일 기준으로 브랜드별 주요 지표(매출 · 전환율 등)를 그래프로 봐요.</li>
+            <li><b style="color:#7FAEF5">매출계산기</b> 엑셀 주문 파일에서 행사에 해당하는 매출만 골라 자동 계산해요.</li>
+          </ul>
+        </div>
+
+        <div class="guide-section">
+          <div class="guide-h1"><span class="guide-num">5</span> 알아두면 편한 기능</div>
+          <ul class="guide-ul">
+            <li><b>↩️ 되돌리기</b> 사이드바 위쪽 버튼 또는 Ctrl+Z로 방금 한 작업을 취소할 수 있어요 (최근 30단계).</li>
+            <li><b>💾 데이터 백업</b> 사이드바 하단 "⬇ 데이터 백업"으로 전체 데이터를 파일로 저장해둘 수 있어요.</li>
+            <li><b>☁️ 클라우드 동기화</b> Firebase를 연결하면 다른 컴퓨터 · 팀원과 실시간으로 같은 데이터를 봐요. 연결 안 해도 내 컴퓨터에는 정상적으로 저장돼요.</li>
+            <li><b>🔍 브랜드 필터</b> 대부분의 화면 위쪽에 브랜드 체크박스가 있어요. 필요한 브랜드만 체크하면 그것만 보여요.</li>
+            <li><b>↔️ 열 너비 조절</b> 표 머리글 오른쪽 끝을 드래그하면 칸 너비를 바꿀 수 있어요.</li>
+          </ul>
+        </div>
+
+        <div style="text-align:center;color:var(--text-secondary);font-size:13px;font-style:italic;padding:16px 0 4px">궁금한 점이나 더 필요한 기능이 있으면 언제든 편하게 요청해주세요 🌸</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderSsImportModal(){
   if(!ssImportModalOpen) return '';
   const promo = ensurePromotion();
@@ -4294,6 +4444,16 @@ function updateChecklistEventSales(checklistId, value){
   row.eventSales = sanitizePromoNumber(value);
   touch(row);
   saveState(); render();
+  resyncSalesForChecklistEntry(checklistId);
+}
+function updateChecklistTargetSales(checklistId, value){
+  const promo = ensurePromotion();
+  const row = promo.checklist.find(c=>c.id===checklistId);
+  if(!row) return;
+  row.targetSales = sanitizePromoNumber(value);
+  touch(row);
+  saveState(); render();
+  resyncSalesForChecklistEntry(checklistId);
 }
 function shortMD(dateStr){
   if(!dateStr) return '-';
@@ -4344,7 +4504,14 @@ function renderSettingHelperModal(){
         <div class="modal-title-row">
           <div class="modal-title">${entry.promoName||'(제목 없음)'}_${entry.brand||'(브랜드 미정)'}</div>
           <div class="modal-event-sales">
-            <label>행사 매출</label>
+            <label>목표 매출</label>
+            <input type="text" inputmode="numeric" placeholder="0" class="row-input mono"
+              value="${entry.targetSales?Number(entry.targetSales).toLocaleString('ko-KR'):''}"
+              onchange="updateChecklistTargetSales('${entry.id}', this.value)">
+            <span>원</span>
+          </div>
+          <div class="modal-event-sales" style="background:#F0FBF4;border-color:#BEEBD2">
+            <label style="color:#2E9E68">행사 매출</label>
             <input type="text" inputmode="numeric" placeholder="0" class="row-input mono"
               value="${entry.eventSales?Number(entry.eventSales).toLocaleString('ko-KR'):''}"
               onchange="updateChecklistEventSales('${entry.id}', this.value)">
@@ -4904,7 +5071,7 @@ function handleSelectionSync(ss, data) {
   var sheet = ss.getSheets().filter(function(s){ return s.getSheetId() === targetGid; })[0];
   if (!sheet) sheet = ss.getSheets()[0];
 
-  var header = ['행키','시작일','종료일','프로모션명','노출구좌','노출일','브랜드','상품코드','상품명','등록가','즉시할인가','최종혜택가','할인율'];
+  var header = ['행키','시작일','종료일','프로모션명','노출구좌','노출일','브랜드','상품코드','상품명','등록가','즉시할인가','최종혜택가','할인율','목표매출','행사매출'];
   if (sheet.getLastRow() === 0) sheet.appendRow(header);
 
   var lastRow = sheet.getLastRow();
@@ -4928,7 +5095,8 @@ function handleSelectionSync(ss, data) {
     var rowValues = [
       r.rowKey, r.startDate || '', r.endDate || '', r.promoName || '', r.exposureSlot || '',
       r.exposureDate || '', r.brand || '', r.code || '', r.name || '',
-      r.regPrice || '', r.instantDiscountPrice || '', r.finalBenefitPrice || '', r.rate || ''
+      r.regPrice || '', r.instantDiscountPrice || '', r.finalBenefitPrice || '', r.rate || '',
+      r.targetSales || '', r.eventSales || ''
     ];
     var idx = allKeys.indexOf(r.rowKey);
     if (idx >= 0) {
@@ -5489,6 +5657,26 @@ async function syncAllProposalsToSheet(btnEl){
    보낼 때마다 그 항목(entryId)에 해당하는 시트의 기존 행들을 지금 상태로 통째로 맞춰치기 때문에,
    상품을 추가/삭제해도 시트가 항상 앱과 똑같이 맞춰진다. */
 let selectionSheetSyncTimers = {};
+/* 셋팅도우미의 목표매출·행사매출을, 그 항목과 연결된 선정리스트 항목을 통해 구글시트에도 반영한다.
+   (셋팅도우미가 체크리스트→선정리스트를 찾는 방식과 똑같이 매칭한다) */
+function findChecklistForSelection(s){
+  const promo = ensurePromotion();
+  if(!s) return null;
+  return promo.checklist.find(c=>{
+    if(s.sourceProposalId){
+      return c.sourceProposalId===s.sourceProposalId && (c.brand||'')===(s.brand||'');
+    }
+    return (c.promoName||'')===(s.promoName||'') && (c.brand||'')===(s.brand||'') &&
+           (c.startDate||'')===(s.startDate||'') && (c.endDate||'')===(s.endDate||'');
+  });
+}
+function resyncSalesForChecklistEntry(checklistId){
+  const promo = ensurePromotion();
+  const c = promo.checklist.find(x=>x.id===checklistId);
+  if(!c) return;
+  const sel = promo.selections.find(s=>findChecklistForSelection(s)===c);
+  if(sel) scheduleSelectionSheetSync(sel.id);
+}
 function scheduleSelectionSheetSync(entryId){
   const url = (ensurePromotion().sheetSyncUrl||'').trim();
   if(!url) return;
@@ -5499,6 +5687,9 @@ async function resyncSelectionEntryToSheet(entryId){
   const url = (ensurePromotion().sheetSyncUrl||'').trim();
   if(!url) return;
   const s = ensurePromotion().selections.find(x=>x.id===entryId);
+  const checklistEntry = s ? findChecklistForSelection(s) : null;
+  const targetSales = checklistEntry ? (checklistEntry.targetSales||'') : '';
+  const eventSales = checklistEntry ? (checklistEntry.eventSales||'') : '';
   // 항목이 이미 삭제됐으면 rows를 빈 배열로 보내서 시트에 남아있던 그 항목의 행들도 같이 지운다
   const rows = s ? (s.products||[]).map(p=>{
     const rate = calcDiscountRate(p.regPrice, p.finalBenefitPrice);
@@ -5509,6 +5700,7 @@ async function resyncSelectionEntryToSheet(entryId){
       code: p.code||'', name: p.name||'',
       regPrice: p.regPrice||'', instantDiscountPrice: p.instantDiscountPrice||'', finalBenefitPrice: p.finalBenefitPrice||'',
       rate: rate===null ? '' : rate+'%',
+      targetSales, eventSales,
     };
   }) : [];
   const payload = { type:'selection', action:'resyncEntry', entryId, rows };
@@ -6559,6 +6751,7 @@ function renderDashboard(){
         <h1>대시보드</h1>
         <div class="sub">${ymLabel(tm)} 기준 · 광고비 종류별 충전 현황</div>
       </div>
+      <button class="btn ghost" style="color:var(--text-primary)" onclick="openGuideModal()">📖 사용설명서</button>
     </div>
 
     <div class="card">
@@ -6695,6 +6888,7 @@ function renderDashboard(){
 
     <div class="helptext">왼쪽 메뉴에서 각 광고비 종류를 선택하면 계정·브랜드별 상세 충전 내역과 예산 현황을 확인하고 입력할 수 있습니다.</div>
     `}
+    ${renderGuideModal()}
   `;
 }
 
