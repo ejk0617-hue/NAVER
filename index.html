@@ -5881,13 +5881,11 @@ function toggleProposalBrandSelected(id, brand){
   if(nowSelected){
     addChecklistFromProposalBrand(row, brand);
     addSelectionFromProposalBrand(row, brand);
-  } else {
-    // 체크 해제 시, 이 제안+브랜드에서 자동 생성됐던 셋팅/선정리스트 항목도 함께 삭제
-    promo.checklist.filter(c => c.sourceProposalId===id && c.brand===brand).forEach(c=>recordDeleted('checklist', c.id));
-    promo.selections.filter(s => s.sourceProposalId===id && s.brand===brand).forEach(s=>recordDeleted('selections', s.id));
-    promo.checklist = promo.checklist.filter(c => !(c.sourceProposalId===id && c.brand===brand));
-    promo.selections = promo.selections.filter(s => !(s.sourceProposalId===id && s.brand===brand));
   }
+  // 체크를 해제해도 이미 만들어진 셋팅·선정리스트 항목은 더 이상 자동으로 지우지 않는다.
+  // 한 번 입력된 데이터는 각 리스트 화면의 삭제(🗑) 버튼으로 직접 지우지 않는 한 절대 자동으로
+  // 사라지지 않아야 하기 때문 — "선정완료 체크"는 그저 새 항목을 만들어주는 트리거일 뿐, 그 뒤로
+  // 두 데이터는 서로 독립적으로 관리된다.
   saveState(); render();
   scheduleSheetSync(id);
   scheduleCalendarSync('selected', id);
@@ -5895,7 +5893,7 @@ function toggleProposalBrandSelected(id, brand){
 /* 선정완료는 한 번 체크되면 실수로(혹은 다른 이유로) 풀리지 않도록 잠가두고,
    해제하고 싶을 때만 "수정" 버튼으로 확인창을 한 번 거쳐서 풀 수 있게 한다. */
 function requestUnselectProposalBrand(id, brand){
-  if(!confirm(`"${brand}" 선정완료를 해제할까요?\n연결되어 있던 셋팅·선정리스트 항목도 함께 삭제됩니다.`)) return;
+  if(!confirm(`"${brand}" 선정완료를 해제할까요?\n(이미 만들어진 셋팅·선정리스트 항목은 지워지지 않고 그대로 남아있어요. 지우려면 각 리스트에서 직접 삭제해주세요.)`)) return;
   toggleProposalBrandSelected(id, brand);
 }
 function toggleProposalField(id, field){
