@@ -340,6 +340,13 @@
   .ss-import-mapping-row.unmapped{background:#FFE4E7;}
   .ss-import-source-name{flex:1;min-width:0;font-size:12.5px;font-weight:700;}
   .ss-import-mapping-row select{max-width:150px;}
+
+  .live-bar-chart{display:flex;align-items:flex-end;gap:6px;padding:8px 4px 0;}
+  .live-bar-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0;}
+  .live-bar-value{font-size:9.5px;font-weight:700;color:var(--text-secondary);margin-bottom:3px;white-space:nowrap;}
+  .live-bar{width:60%;min-width:10px;border-radius:5px 5px 0 0;transition:height .2s;}
+  .live-bar-label{font-size:10.5px;color:var(--text-secondary);margin-top:6px;text-align:center;white-space:nowrap;}
+  .live-bar-label span{display:block;font-size:9px;color:#C2CAC2;}
   th{text-align:left;font-size:11.5px;color:var(--text-secondary);font-weight:700;text-transform:uppercase;letter-spacing:.03em;
      padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
   td{padding:9px 10px;border-bottom:1px solid #EEF0F3;vertical-align:middle;overflow:hidden;}
@@ -629,6 +636,7 @@ const NAV_GROUPS = [
   {key:'live', type:'group', label:'라이브', color:'#00B8A9', children:[
     {sectionKey:'live_calendar', label:'캘린더',    color:'#00B8A9'},
     {sectionKey:'live_schedule', label:'라이브 일정', color:'#FF6B9D'},
+    {sectionKey:'live_performance', label:'라이브 현황', color:'#7C4DFF'},
   ]},
   {key:'fulfillment', type:'group', label:'풀필먼트', color:'#0EA5A5', children:[
     {sectionKey:'fulfillment_inbound_calc', label:'입고량 계산', color:'#0EA5A5'},
@@ -1553,6 +1561,7 @@ function render(){
       case 'promo_manage': main.innerHTML = renderPromoManage(); break;
       case 'live_calendar': main.innerHTML = renderLiveCalendar(); break;
       case 'live_schedule': main.innerHTML = renderLiveSchedule(); break;
+      case 'live_performance': main.innerHTML = renderLivePerformance(); break;
       case 'fulfillment_inbound_calc': main.innerHTML = renderFulfillmentInboundCalc(); break;
       case 'fulfillment_items': main.innerHTML = renderFulfillmentItems(); break;
       case 'smartstore_sales': main.innerHTML = renderSmartstoreDashboard(); break;
@@ -6512,13 +6521,14 @@ function renderPromoCodeLookup(){
    ========================================================================= */
 function ensureLive(){
   if(!state.live || typeof state.live!=='object'){
-    state.live = { schedule: [], calendarFilter: {}, liveCalendarId: '', liveCalendarId2: '', liveCalendarId2BrandsText: '' };
+    state.live = { schedule: [], calendarFilter: {}, liveCalendarId: '', liveCalendarId2: '', liveCalendarId2BrandsText: '', performance: [] };
   }
   if(!Array.isArray(state.live.schedule)) state.live.schedule = [];
   if(!state.live.calendarFilter || typeof state.live.calendarFilter!=='object') state.live.calendarFilter = {};
   if(state.live.liveCalendarId===undefined) state.live.liveCalendarId = '';
   if(state.live.liveCalendarId2===undefined) state.live.liveCalendarId2 = '';
   if(state.live.liveCalendarId2BrandsText===undefined) state.live.liveCalendarId2BrandsText = '';
+  if(!Array.isArray(state.live.performance)) state.live.performance = [];
   return state.live;
 }
 /* 두 번째 라이브캘린더로 보낼지 여부를 정하는 브랜드 목록 (쉼표로 구분해서 저장) */
@@ -6580,6 +6590,301 @@ function updateLiveScheduleField(id, field, value){
 }
 
 const LIVE_COL_DEFAULTS = [22,110,64,90,120,130,220,30];
+/* =========================================================================
+   라이브 현황 — 라이브 매출 데이터를 엑셀로 불러와서, 브랜드별로
+   날짜별·요일별·시간별·쇼호스트별 매출 추이를 그래프로 보여준다.
+   ========================================================================= */
+let liveImportModalOpen = false;
+let liveImportRows = null; // [{date, weekday, time, brand, host, content, sales}]
+let liveImportMapping = {}; // { 원본브랜드명: 우리브랜드명 }
+function openLiveImportModal(){ liveImportModalOpen = true; liveImportRows = null; liveImportMapping = {}; render(); }
+function closeLiveImportModal(){ liveImportModalOpen = false; render(); }
+async function handleLiveImportFile(){
+  const fileInput = document.getElementById('liveImportFile');
+  const file = fileInput && fileInput.files[0];
+  if(!file) return;
+  if(typeof XLSX === 'undefined'){ alert('엑셀 처리 기능을 불러오지 못했어요. 인터넷 연결을 확인하고 새로고침 후 다시 시도해주세요.'); return; }
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:false});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    if(rows.length===0){ alert('엑셀에서 데이터를 찾지 못했어요.'); return; }
+    const headers = Object.keys(rows[0]);
+    const dateCol = headers.find(h=>/날짜/.test(h)) || headers[0];
+    const weekdayCol = headers.find(h=>/요일/.test(h)) || '';
+    const timeCol = headers.find(h=>/시간/.test(h)) || '';
+    const channelCol = headers.find(h=>/채널/.test(h)) || '';
+    const brandCol = headers.find(h=>/브랜드/.test(h)) || '';
+    const hostCol = headers.find(h=>/쇼호스트|호스트/.test(h)) || '';
+    const contentCol = headers.find(h=>/행사내용|내용/.test(h)) || '';
+    const salesCol = headers.find(h=>h==='라이브매출') || headers.find(h=>/라이브\s*매출/.test(h)) || headers.find(h=>/매출/.test(h)) || '';
+
+    let skippedByChannel = 0;
+    const parsed = rows.map(r=>{
+      if(channelCol){
+        const channel = String(r[channelCol]||'').trim();
+        if(channel && !channel.includes('네이버')){ skippedByChannel++; return null; }
+      }
+      const date = normalizeExcelDateToYMD(r[dateCol]) || String(r[dateCol]||'').trim();
+      const brand = String(r[brandCol]||'').trim();
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || !brand) return null;
+      return {
+        date,
+        weekday: weekdayCol ? String(r[weekdayCol]||'').trim() : '',
+        time: timeCol ? String(r[timeCol]||'').trim() : '',
+        brand,
+        host: hostCol ? String(r[hostCol]||'').trim() : '',
+        content: contentCol ? String(r[contentCol]||'').trim() : '',
+        sales: Number(sanitizePromoNumber(String(r[salesCol]||'0')))||0,
+      };
+    }).filter(Boolean);
+
+    if(parsed.length===0){ alert('"날짜 · 브랜드 · 라이브매출" 형태의 데이터를 찾지 못했어요. 파일 구조를 확인해주세요.'); return; }
+    liveImportRows = parsed;
+    const promo = ensurePromotion();
+    const uniqueBrands = Array.from(new Set(parsed.map(r=>r.brand)));
+    liveImportMapping = {};
+    uniqueBrands.forEach(b=>{ liveImportMapping[b] = guessBrandMatch(b, promo.brands); });
+    render();
+  }catch(e){
+    console.error(e);
+    alert('엑셀 파일을 읽는 중 문제가 생겼어요. 파일 형식을 확인해주세요.');
+  }
+}
+function updateLiveImportMapping(brandName, mapped){
+  liveImportMapping[brandName] = mapped;
+  render();
+}
+function runLiveImport(){
+  if(!liveImportRows) return;
+  const unmapped = Object.keys(liveImportMapping).filter(b=>!liveImportMapping[b]);
+  if(unmapped.length>0){
+    if(!confirm(`"${unmapped.join('", "')}" 브랜드는 매칭이 안 됐어요.\n이 브랜드들은 건너뛰고 나머지만 가져올까요?`)) return;
+  }
+  const live = ensureLive();
+  let importedCount = 0, skippedCount = 0;
+  liveImportRows.forEach(r=>{
+    const brand = liveImportMapping[r.brand];
+    if(!brand){ skippedCount++; return; }
+    // 같은 날짜·시간·브랜드·호스트면 같은 라이브로 보고 다시 불러올 때 덮어쓴다(중복 방지)
+    const key = `${r.date}_${r.time}_${brand}_${r.host}`;
+    let entry = live.performance.find(p=>p._importKey===key);
+    if(!entry){
+      live.performance.push({id:uid(), _importKey:key, date:r.date, weekday:r.weekday, time:r.time, brand, host:r.host, content:r.content, sales:r.sales});
+    } else {
+      entry.weekday = r.weekday; entry.time = r.time; entry.host = r.host; entry.content = r.content; entry.sales = r.sales;
+    }
+    importedCount++;
+  });
+  saveState();
+  liveImportModalOpen = false;
+  liveImportRows = null;
+  render();
+  alert(`${importedCount.toLocaleString('ko-KR')}건을 라이브 현황에 반영했어요.${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
+}
+function renderLiveImportModal(){
+  if(!liveImportModalOpen) return '';
+  const promo = ensurePromotion();
+  const uniqueBrands = liveImportRows ? Array.from(new Set(liveImportRows.map(r=>r.brand))) : [];
+  const dateRange = liveImportRows && liveImportRows.length>0 ? {
+    start: liveImportRows.reduce((m,r)=>r.date<m?r.date:m, liveImportRows[0].date),
+    end: liveImportRows.reduce((m,r)=>r.date>m?r.date:m, liveImportRows[0].date),
+  } : null;
+  return `
+    <div class="modal-overlay" onclick="closeLiveImportModal()">
+      <div class="modal-panel" onclick="event.stopPropagation()" style="max-width:640px">
+        <button class="modal-close" onclick="closeLiveImportModal()" title="닫기">✕</button>
+        <div class="modal-title">📥 라이브 매출 엑셀 불러오기</div>
+        <div class="modal-sub">"날짜 · 요일 · 시간 · 채널 · 브랜드 · 쇼호스트 · 행사내용 · 라이브매출" 열이 있는 엑셀을 그대로 올려주세요. 채널이 "네이버"인 것만 자동으로 골라내요.</div>
+
+        ${!liveImportRows ? `
+          <div style="margin-top:18px">
+            <label class="ssc-file-btn">
+              📁 엑셀 파일 선택
+              <input type="file" id="liveImportFile" accept=".xlsx,.xls" onchange="handleLiveImportFile()" style="display:none">
+            </label>
+          </div>
+        ` : `
+          <div class="helptext" style="margin-top:14px">총 ${liveImportRows.length.toLocaleString('ko-KR')}건, ${dateRange.start} ~ ${dateRange.end} · 브랜드 ${uniqueBrands.length}개</div>
+          <div class="helptext" style="margin-top:4px">이름이 다르게 되어있는 브랜드는 아래에서 맞춰주세요 (최대한 비슷한 이름을 자동으로 골라놨어요).</div>
+          <div class="ss-import-mapping-list">
+            ${uniqueBrands.map(b=>{
+              const rowCount = liveImportRows.filter(r=>r.brand===b).length;
+              const mapped = liveImportMapping[b]||'';
+              return `
+              <div class="ss-import-mapping-row ${mapped?'':'unmapped'}">
+                <span class="ss-import-source-name">${b} <span style="color:var(--text-secondary);font-weight:400">(${rowCount}건)</span></span>
+                <span style="color:var(--text-secondary)">→</span>
+                <select class="row-input ssc-left" onchange="updateLiveImportMapping('${b.replace(/'/g,"\\'")}', this.value)">
+                  <option value="">건너뛰기</option>
+                  ${promo.brands.map(x=>`<option value="${x}" ${x===mapped?'selected':''}>${x}</option>`).join('')}
+                </select>
+              </div>`;
+            }).join('')}
+          </div>
+          <button class="btn" style="margin-top:16px;width:100%" onclick="runLiveImport()">✅ 라이브 현황에 반영하기</button>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+/* ---- 라이브 현황 시각화 ---- */
+function liveSalesBarChart(items, opts){
+  // items: [{label, total, count}]  opts: {height, barColor, valueFmt}
+  const height = opts.height || 150;
+  const barColor = opts.barColor || '#7C4DFF';
+  const maxVal = Math.max(1, ...items.map(x=>x.value));
+  const barW = 100 / Math.max(1, items.length);
+  return `
+    <div class="live-bar-chart" style="height:${height}px">
+      ${items.map(it=>{
+        const h = Math.max(2, Math.round((it.value/maxVal)*100));
+        return `
+        <div class="live-bar-col" style="width:${barW}%">
+          <div class="live-bar-value">${it.value>0 ? formatWon(it.value) : ''}</div>
+          <div class="live-bar" style="height:${h}%;background:${barColor}"></div>
+          <div class="live-bar-label">${it.label}${it.count!==undefined?`<span>(${it.count}회)</span>`:''}</div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+function liveDateLineChart(points){
+  if(points.length===0) return `<div class="empty">데이터가 없습니다.</div>`;
+  const W = 900, H = 200, padL = 56, padR = 20, padT = 16, padB = 34;
+  const maxVal = Math.max(1, ...points.map(p=>p.value));
+  const ticks = niceAxisTicks(0, maxVal, 4);
+  const niceMax = ticks[ticks.length-1] || maxVal;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const stepX = points.length>1 ? innerW/(points.length-1) : 0;
+  const xOf = i => padL + i*stepX;
+  const yOf = v => padT + innerH - (v/niceMax)*innerH;
+  const linePoints = points.map((p,i)=>`${xOf(i)},${yOf(p.value)}`).join(' ');
+  const showEveryN = Math.ceil(points.length/12) || 1;
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
+      ${ticks.map(t=>`
+        <line x1="${padL}" y1="${yOf(t)}" x2="${W-padR}" y2="${yOf(t)}" stroke="#EEF1EE" stroke-width="1"/>
+        <text x="${padL-8}" y="${yOf(t)+3}" font-size="9" fill="#9AA69C" text-anchor="end">${formatMiniAxisNumber(t)}</text>
+      `).join('')}
+      <polyline points="${linePoints}" fill="none" stroke="#7C4DFF" stroke-width="2"/>
+      ${points.map((p,i)=>`<circle cx="${xOf(i)}" cy="${yOf(p.value)}" r="2.6" fill="#7C4DFF"><title>${p.label}: ${formatWon(p.value)}</title></circle>`).join('')}
+      ${points.map((p,i)=> i%showEveryN===0 ? `<text x="${xOf(i)}" y="${H-10}" font-size="8.5" fill="#9AA69C" text-anchor="middle">${p.label}</text>` : '').join('')}
+    </svg>
+  `;
+}
+function renderLivePerformance(){
+  const live = ensureLive();
+  const promo = ensurePromotion();
+  const filterKey = 'livePerfFilter';
+  const visibleBrands = promo.brands.filter(b=>isBrandVisibleIn(filterKey, b));
+  const rows = live.performance.filter(p=>visibleBrands.includes(p.brand||''));
+
+  const totalSales = rows.reduce((s,r)=>s+Number(r.sales||0),0);
+  const liveCount = rows.length;
+  const avgSales = liveCount>0 ? Math.round(totalSales/liveCount) : 0;
+
+  // 날짜별(일별 합계, 날짜순)
+  const byDate = {};
+  rows.forEach(r=>{ byDate[r.date] = (byDate[r.date]||0) + Number(r.sales||0); });
+  const datePoints = Object.keys(byDate).sort().map(d=>({label:d.slice(5), value:byDate[d]}));
+
+  // 요일별(평균, 월~일 고정 순서) — 요일은 날짜에서 직접 계산해서 표기가 달라도 항상 정확하게
+  const WEEKDAY_ORDER = ['월','화','수','목','금','토','일'];
+  const weekdayAgg = {}; WEEKDAY_ORDER.forEach(w=>{ weekdayAgg[w] = {total:0, count:0}; });
+  rows.forEach(r=>{
+    const wd = koreanWeekday(r.date);
+    if(!weekdayAgg[wd]) weekdayAgg[wd] = {total:0, count:0};
+    weekdayAgg[wd].total += Number(r.sales||0);
+    weekdayAgg[wd].count += 1;
+  });
+  const weekdayItems = WEEKDAY_ORDER.map(w=>({
+    label: w, count: weekdayAgg[w].count,
+    value: weekdayAgg[w].count>0 ? Math.round(weekdayAgg[w].total/weekdayAgg[w].count) : 0,
+  }));
+
+  // 시간대별(평균, 값 기준 오름차순 정렬)
+  const timeAgg = {};
+  rows.forEach(r=>{
+    const t = r.time || '(미기재)';
+    if(!timeAgg[t]) timeAgg[t] = {total:0, count:0};
+    timeAgg[t].total += Number(r.sales||0);
+    timeAgg[t].count += 1;
+  });
+  const timeItems = Object.keys(timeAgg).sort().map(t=>({
+    label:t, count: timeAgg[t].count, value: Math.round(timeAgg[t].total/timeAgg[t].count),
+  }));
+
+  // 쇼호스트별(합계 기준 내림차순 정렬 — 누가 제일 많이 팔았는지)
+  const hostAgg = {};
+  rows.forEach(r=>{
+    const h = r.host || '(미기재)';
+    if(!hostAgg[h]) hostAgg[h] = {total:0, count:0};
+    hostAgg[h].total += Number(r.sales||0);
+    hostAgg[h].count += 1;
+  });
+  const hostItems = Object.keys(hostAgg).map(h=>({
+    label:h, count:hostAgg[h].count, value:hostAgg[h].total, avg: Math.round(hostAgg[h].total/hostAgg[h].count),
+  })).sort((a,b)=>b.value-a.value).slice(0,12);
+
+  return `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:#7C4DFF22;color:#7C4DFF">라이브</span>
+        <h1>라이브 현황</h1>
+        <div class="sub">브랜드별로 날짜 · 요일 · 시간대 · 쇼호스트에 따른 라이브 매출 추이를 볼 수 있어요</div>
+      </div>
+      <button class="btn ghost" style="color:var(--text-primary)" onclick="openLiveImportModal()">📥 엑셀로 불러오기</button>
+    </div>
+
+    ${renderBrandFilterBar(filterKey, promo.brands)}
+
+    ${rows.length===0 ? `<div class="card"><div class="empty">${live.performance.length===0 ? '아직 불러온 라이브 매출 데이터가 없어요. 위 "엑셀로 불러오기" 버튼으로 추가해보세요.' : '브랜드 필터에 해당하는 데이터가 없어요.'}</div></div>` : `
+    <div class="stat-grid">
+      <div class="stat-box"><div class="label">총 라이브 매출</div><div class="value mono" style="color:#7C4DFF">${formatWon(totalSales)}</div></div>
+      <div class="stat-box"><div class="label">라이브 횟수</div><div class="value mono">${liveCount}회</div></div>
+      <div class="stat-box"><div class="label">회당 평균 매출</div><div class="value mono">${formatWon(avgSales)}</div></div>
+    </div>
+
+    <div class="card">
+      <h2>📅 날짜별 매출 추이</h2>
+      ${liveDateLineChart(datePoints)}
+    </div>
+
+    <div class="ss-row2col">
+      <div class="card">
+        <h2>🗓️ 요일별 평균 매출</h2>
+        ${liveSalesBarChart(weekdayItems, {barColor:'#7C4DFF'})}
+      </div>
+      <div class="card">
+        <h2>⏰ 시간대별 평균 매출</h2>
+        ${liveSalesBarChart(timeItems, {barColor:'#2F6FED'})}
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🎤 쇼호스트별 매출 순위 <span style="font-weight:400;color:var(--text-secondary);font-size:12px">(합계 기준, 상위 12명)</span></h2>
+      <table>
+        <thead><tr><th style="text-align:left">쇼호스트</th><th class="num">라이브 횟수</th><th class="num">총 매출</th><th class="num">회당 평균</th></tr></thead>
+        <tbody>
+          ${hostItems.map((h,i)=>`
+            <tr class="${i%2===1?'row-alt':''}">
+              <td style="font-weight:700">${i<3?['🥇','🥈','🥉'][i]+' ':''}${h.label}</td>
+              <td class="num mono">${h.count}회</td>
+              <td class="num mono" style="font-weight:800;color:#7C4DFF">${formatWon(h.value)}</td>
+              <td class="num mono">${formatWon(h.avg)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+    `}
+    ${renderLiveImportModal()}
+  `;
+}
+
 function renderLiveSchedule(){
   const promo = ensurePromotion();
   const live = ensureLive();
