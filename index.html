@@ -6758,8 +6758,19 @@ function renderLiveSheetSyncCard(){
       return ContentService.createTextOutput(JSON.stringify({ok:true, rows:[]}))
         .setMimeType(ContentService.MimeType.JSON);
     }
-    var headers = values[0];
-    var rows = values.slice(1).map(function(row){
+
+    // 1행이 항상 진짜 표 머리글이라는 보장이 없어서(위에 제목/안내 행이 있을 수 있음),
+    // "날짜"나 "브랜드"라는 글자가 들어있는 행을 찾아서 그 행을 진짜 머리글로 쓴다.
+    var headerRowIdx = -1;
+    for (var i = 0; i < Math.min(values.length, 15); i++) {
+      var rowHasDate = values[i].some(function(c){ return String(c).trim() === '날짜'; });
+      var rowHasBrand = values[i].some(function(c){ return String(c).trim() === '브랜드'; });
+      if (rowHasDate || rowHasBrand) { headerRowIdx = i; break; }
+    }
+    if (headerRowIdx === -1) headerRowIdx = 0; // 못 찾으면 예전처럼 1행을 그대로 사용
+
+    var headers = values[headerRowIdx];
+    var rows = values.slice(headerRowIdx + 1).map(function(row){
       var obj = {};
       headers.forEach(function(h, i){
         if (!h) return;
@@ -6772,7 +6783,7 @@ function renderLiveSheetSyncCard(){
         obj[h] = v;
       });
       return obj;
-    });
+    }).filter(function(obj){ return Object.keys(obj).length > 0; });
     return ContentService.createTextOutput(JSON.stringify({ok:true, rows:rows}))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
