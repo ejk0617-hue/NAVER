@@ -80,6 +80,10 @@
   }
   .sidebar-footer button:hover{background:#E4F8EC;color:var(--text-primary);}
   #undoBtn{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important;font-weight:700;margin-top:0!important;}
+  #forceSaveBtn{background:#2F6FED!important;color:#fff!important;border-color:#2F6FED!important;font-weight:700;margin-top:6px!important;}
+  #forceSaveBtn:hover{background:#255ACB!important;}
+  #forceSaveToast{position:fixed;top:22px;left:50%;transform:translateX(-50%) translateY(-14px);background:#20261F;color:#fff;padding:11px 22px;border-radius:10px;font-size:13.5px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:999;opacity:0;pointer-events:none;transition:opacity .18s, transform .18s;}
+  #forceSaveToast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   #undoBtn:hover{background:#02A64C!important;}
   .sync-badge{font-size:11px;color:var(--text-secondary);padding:6px 2px;line-height:1.5;}
   #importFile{display:none;}
@@ -583,6 +587,7 @@
     <nav id="navList"></nav>
     <div class="sidebar-footer">
       <button id="undoBtn" onclick="undoLastAction()" title="Ctrl+Z로도 되돌릴 수 있어요">↩️ 되돌리기 (Ctrl+Z)</button>
+      <button id="forceSaveBtn" onclick="forceSaveNow()" title="Ctrl+S로도 저장할 수 있어요">💾 지금 저장 (Ctrl+S)</button>
       <div id="syncBadge" class="sync-badge"></div>
       <button onclick="manualRefresh()">🔄 서버에서 새로고침</button>
       <button onclick="openAccessCodeDialog()">☁️ 클라우드 동기화 설정 (Firebase)</button>
@@ -844,6 +849,12 @@ document.addEventListener('keydown', (e)=>{
     e.preventDefault();
     undoLastAction();
   }
+  if((e.ctrlKey || e.metaKey) && key==='s'){
+    // Ctrl+S(브라우저의 "페이지 저장" 대화상자)는 항상 막고, 대신 지금 상태를 즉시 저장한다.
+    // 텍스트 입력 중이어도 예외 없이 작동해야 안심할 수 있어서, 포커스 여부와 상관없이 항상 실행한다.
+    e.preventDefault();
+    forceSaveNow();
+  }
 });
 
 function saveState(){
@@ -861,6 +872,40 @@ function saveState(){
     try{ previousStateSnapshot = JSON.stringify(state); }catch(e){}
   }
   scheduleServerPush();
+}
+/* Ctrl+S(또는 사이드바 버튼)로 "지금 이 순간"을 확실하게 저장한다.
+   평소엔 250ms 정도 기다렸다가 서버에 반영하는데(연타 방지), 이 강제저장은 그 대기 없이 즉시 반영하고,
+   화면 한켠에 "저장됐어요" 표시를 잠깐 띄워서 눈으로 확인할 수 있게 한다. */
+function forceSaveNow(){
+  // 지금 뭔가 입력하던 칸이 있으면, 브라우저가 알아서 change를 발생시켜주길 기다리지 않고
+  // 명시적으로 change 이벤트를 보내서 그 값이 확실하게 state에 반영되고 나서 저장한다
+  const active = document.activeElement;
+  if(active && (active.tagName==='INPUT' || active.tagName==='TEXTAREA' || active.tagName==='SELECT')){
+    active.dispatchEvent(new Event('change', {bubbles:true}));
+    active.blur();
+  }
+  state.__lastLocalEdit = Date.now();
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }catch(e){
+    console.error('저장 실패 (localStorage 사용 불가 환경일 수 있습니다):', e);
+  }
+  clearTimeout(pushTimer);
+  pushToServer();
+  showSaveToast();
+}
+function showSaveToast(){
+  let toast = document.getElementById('forceSaveToast');
+  if(!toast){
+    toast = document.createElement('div');
+    toast.id = 'forceSaveToast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = '💾 저장됐어요';
+  toast.classList.remove('show'); void toast.offsetWidth; // 애니메이션 재시작을 위한 강제 리플로우
+  toast.classList.add('show');
+  clearTimeout(showSaveToast._t);
+  showSaveToast._t = setTimeout(()=>{ toast.classList.remove('show'); }, 1600);
 }
 
 /* =========================================================================
