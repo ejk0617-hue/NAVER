@@ -6529,6 +6529,7 @@ function ensureLive(){
   if(state.live.liveCalendarId2===undefined) state.live.liveCalendarId2 = '';
   if(state.live.liveCalendarId2BrandsText===undefined) state.live.liveCalendarId2BrandsText = '';
   if(!Array.isArray(state.live.performance)) state.live.performance = [];
+  if(state.live.liveSalesSheetUrl===undefined) state.live.liveSalesSheetUrl = '';
   return state.live;
 }
 /* 두 번째 라이브캘린더로 보낼지 여부를 정하는 브랜드 목록 (쉼표로 구분해서 저장) */
@@ -6599,6 +6600,49 @@ let liveImportRows = null; // [{date, weekday, time, brand, host, content, sales
 let liveImportMapping = {}; // { 원본브랜드명: 우리브랜드명 }
 function openLiveImportModal(){ liveImportModalOpen = true; liveImportRows = null; liveImportMapping = {}; render(); }
 function closeLiveImportModal(){ liveImportModalOpen = false; render(); }
+/* 엑셀에서 읽은 행이든, 구글시트에서 읽은 행이든(둘 다 "헤더이름: 값" 형태의 객체 배열) 똑같은 방식으로
+   열을 자동 인식하고 정리한다. 채널이 "네이버"가 아닌 행은 걸러낸다. */
+function parseLiveRows(rows){
+  if(!rows || rows.length===0) return [];
+  const headers = Object.keys(rows[0]);
+  const dateCol = headers.find(h=>/날짜/.test(h)) || headers[0];
+  const weekdayCol = headers.find(h=>/요일/.test(h)) || '';
+  const timeCol = headers.find(h=>/시간/.test(h)) || '';
+  const channelCol = headers.find(h=>/채널/.test(h)) || '';
+  const brandCol = headers.find(h=>/브랜드/.test(h)) || '';
+  const hostCol = headers.find(h=>/쇼호스트|호스트/.test(h)) || '';
+  const contentCol = headers.find(h=>/행사내용|내용/.test(h)) || '';
+  const salesCol = headers.find(h=>h==='라이브매출') || headers.find(h=>/라이브\s*매출/.test(h)) || headers.find(h=>/매출/.test(h)) || '';
+
+  return rows.map(r=>{
+    if(channelCol){
+      const channel = String(r[channelCol]||'').trim();
+      if(channel && !channel.includes('네이버')) return null;
+    }
+    const date = normalizeExcelDateToYMD(r[dateCol]) || String(r[dateCol]||'').trim();
+    const brand = String(r[brandCol]||'').trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || !brand) return null;
+    return {
+      date,
+      weekday: weekdayCol ? String(r[weekdayCol]||'').trim() : '',
+      time: timeCol ? String(r[timeCol]||'').trim() : '',
+      brand,
+      host: hostCol ? String(r[hostCol]||'').trim() : '',
+      content: contentCol ? String(r[contentCol]||'').trim() : '',
+      sales: Number(sanitizePromoNumber(String(r[salesCol]||'0')))||0,
+    };
+  }).filter(Boolean);
+}
+function applyParsedLiveRows(parsed){
+  if(parsed.length===0){ alert('"날짜 · 브랜드 · 라이브매출" 형태의 데이터를 찾지 못했어요. 시트/파일 구조를 확인해주세요.'); return; }
+  liveImportRows = parsed;
+  const promo = ensurePromotion();
+  const uniqueBrands = Array.from(new Set(parsed.map(r=>r.brand)));
+  liveImportMapping = {};
+  uniqueBrands.forEach(b=>{ liveImportMapping[b] = guessBrandMatch(b, promo.brands); });
+  liveImportModalOpen = true;
+  render();
+}
 async function handleLiveImportFile(){
   const fileInput = document.getElementById('liveImportFile');
   const file = fileInput && fileInput.files[0];
@@ -6608,45 +6652,9 @@ async function handleLiveImportFile(){
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, {type:'array', cellDates:false});
     const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-    if(rows.length===0){ alert('엑셀에서 데이터를 찾지 못했어요.'); return; }
-    const headers = Object.keys(rows[0]);
-    const dateCol = headers.find(h=>/날짜/.test(h)) || headers[0];
-    const weekdayCol = headers.find(h=>/요일/.test(h)) || '';
-    const timeCol = headers.find(h=>/시간/.test(h)) || '';
-    const channelCol = headers.find(h=>/채널/.test(h)) || '';
-    const brandCol = headers.find(h=>/브랜드/.test(h)) || '';
-    const hostCol = headers.find(h=>/쇼호스트|호스트/.test(h)) || '';
-    const contentCol = headers.find(h=>/행사내용|내용/.test(h)) || '';
-    const salesCol = headers.find(h=>h==='라이브매출') || headers.find(h=>/라이브\s*매출/.test(h)) || headers.find(h=>/매출/.test(h)) || '';
-
-    let skippedByChannel = 0;
-    const parsed = rows.map(r=>{
-      if(channelCol){
-        const channel = String(r[channelCol]||'').trim();
-        if(channel && !channel.includes('네이버')){ skippedByChannel++; return null; }
-      }
-      const date = normalizeExcelDateToYMD(r[dateCol]) || String(r[dateCol]||'').trim();
-      const brand = String(r[brandCol]||'').trim();
-      if(!/^\d{4}-\d{2}-\d{2}$/.test(date) || !brand) return null;
-      return {
-        date,
-        weekday: weekdayCol ? String(r[weekdayCol]||'').trim() : '',
-        time: timeCol ? String(r[timeCol]||'').trim() : '',
-        brand,
-        host: hostCol ? String(r[hostCol]||'').trim() : '',
-        content: contentCol ? String(r[contentCol]||'').trim() : '',
-        sales: Number(sanitizePromoNumber(String(r[salesCol]||'0')))||0,
-      };
-    }).filter(Boolean);
-
-    if(parsed.length===0){ alert('"날짜 · 브랜드 · 라이브매출" 형태의 데이터를 찾지 못했어요. 파일 구조를 확인해주세요.'); return; }
-    liveImportRows = parsed;
-    const promo = ensurePromotion();
-    const uniqueBrands = Array.from(new Set(parsed.map(r=>r.brand)));
-    liveImportMapping = {};
-    uniqueBrands.forEach(b=>{ liveImportMapping[b] = guessBrandMatch(b, promo.brands); });
-    render();
+    const rawRows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    if(rawRows.length===0){ alert('엑셀에서 데이터를 찾지 못했어요.'); return; }
+    applyParsedLiveRows(parseLiveRows(rawRows));
   }catch(e){
     console.error(e);
     alert('엑셀 파일을 읽는 중 문제가 생겼어요. 파일 형식을 확인해주세요.');
@@ -6682,6 +6690,100 @@ function runLiveImport(){
   liveImportRows = null;
   render();
   alert(`${importedCount.toLocaleString('ko-KR')}건을 라이브 현황에 반영했어요.${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
+}
+function updateLiveSalesSheetUrl(value){
+  ensureLive().liveSalesSheetUrl = value.trim();
+  saveState();
+}
+async function fetchFromLiveSheet(btnEl){
+  const url = (ensureLive().liveSalesSheetUrl||'').trim();
+  if(!url){ alert('먼저 구글시트 웹앱 주소를 입력해주세요.'); return; }
+  const label = btnEl ? btnEl.textContent : '';
+  if(btnEl){ btnEl.textContent = '불러오는 중...'; btnEl.disabled = true; }
+  try{
+    const res = await fetch(url, {method:'GET'});
+    const text = await res.text();
+    let parsed = null;
+    try{ parsed = JSON.parse(text); }catch(e){}
+    if(!parsed || !parsed.ok){
+      alert('시트에서 데이터를 가져오지 못했어요.\n' + (parsed && parsed.error ? parsed.error : ('응답 이상: ' + text.slice(0,200))));
+      return;
+    }
+    const rawRows = parsed.rows || [];
+    if(rawRows.length===0){ alert('시트에서 데이터를 찾지 못했어요.'); return; }
+    applyParsedLiveRows(parseLiveRows(rawRows));
+  }catch(e){
+    console.error('구글시트 불러오기 실패:', e);
+    alert('구글시트에 연결하지 못했어요. 웹앱 주소가 맞는지, 배포가 되어있는지 확인해주세요.');
+  }finally{
+    if(btnEl){ btnEl.textContent = label; btnEl.disabled = false; }
+  }
+}
+function renderLiveSheetSyncCard(){
+  const live = ensureLive();
+  return `
+    <div class="card">
+      <h2>🔗 구글 스프레드시트 연동</h2>
+      <div class="helptext" style="margin-top:0">라이브 매출 구글시트에서 직접 데이터를 가져와요. 먼저 구글 시트 쪽에서 "받는 창구"(앱스스크립트 웹앱)를 한 번 만들어두셔야 해요 — 아래 "연동 설정 방법 보기"를 펼치면 순서대로 안내해드려요.</div>
+      <label style="display:block;font-size:11.5px;font-weight:700;color:var(--text-secondary);margin:10px 0 4px">웹앱 주소</label>
+      <input type="text" class="row-input ssc-left" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px" placeholder="https://script.google.com/macros/s/.../exec" value="${live.liveSalesSheetUrl||''}" onchange="updateLiveSalesSheetUrl(this.value)">
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn" onclick="fetchFromLiveSheet(this)">🔄 지금 불러오기</button>
+        <label class="ssc-file-btn" style="padding:9px 16px;font-size:12.5px">
+          📁 또는 엑셀 파일로
+          <input type="file" id="liveImportFile" accept=".xlsx,.xls" onchange="handleLiveImportFile()" style="display:none">
+        </label>
+      </div>
+      <details style="margin-top:12px">
+        <summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--text-secondary)">▸ 연동 설정 방법 보기 (구글 시트에서 딱 한 번만 하면 돼요)</summary>
+        <div style="margin-top:10px;font-size:12.5px;color:var(--text-secondary);line-height:1.7">
+          1. 그 <b>라이브 매출 구글시트</b>를 열어주세요<br>
+          2. 위 메뉴 <b>확장 프로그램 → Apps Script</b> 클릭<br>
+          3. 아래 코드를 전체 복사해서, 편집기 안의 내용을 지우고 붙여넣기<br>
+          4. 저장(💾) → 오른쪽 위 <b>배포 → 새 배포</b><br>
+          5. 유형에서 <b>웹 앱</b> 선택 → 액세스 권한을 <b>"모든 사용자"</b>로 설정 → 배포<br>
+          6. 나오는 <b>웹 앱 URL</b>을 복사해서 위 "웹앱 주소" 칸에 붙여넣기
+        </div>
+        <div style="position:relative;margin-top:10px">
+          <button class="copy-btn" style="position:absolute;top:8px;right:8px" onclick="copyToClipboard(document.getElementById('liveSheetScriptCode').textContent, this)">복사</button>
+          <pre id="liveSheetScriptCode" style="background:#F5F7F3;border-radius:10px;padding:14px;font-size:11px;overflow-x:auto;white-space:pre;max-height:280px;overflow-y:auto">function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.openById('1Efl0QQrprZf6oq9ZpYTDUdWggdmQnuIKMynFGisEFks');
+    var targetGid = 1441717827; // "네이버만" 탭의 gid — 실제로 보시는 탭과 다르면 이 숫자만 바꿔주세요
+    var sheet = ss.getSheets().filter(function(s){ return s.getSheetId() === targetGid; })[0];
+    if (!sheet) sheet = ss.getSheets()[0];
+
+    var values = sheet.getDataRange().getValues();
+    if (values.length < 2) {
+      return ContentService.createTextOutput(JSON.stringify({ok:true, rows:[]}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    var headers = values[0];
+    var rows = values.slice(1).map(function(row){
+      var obj = {};
+      headers.forEach(function(h, i){
+        if (!h) return;
+        var v = row[i];
+        // 날짜 칸은 그대로 두면 시간대 오차가 생길 수 있어서, 우리가 알아보기 쉬운 문자열로 바꿔서 보낸다
+        if (v instanceof Date) {
+          var y = v.getFullYear(), m = ('0'+(v.getMonth()+1)).slice(-2), d = ('0'+v.getDate()).slice(-2);
+          v = y + '-' + m + '-' + d;
+        }
+        obj[h] = v;
+      });
+      return obj;
+    });
+    return ContentService.createTextOutput(JSON.stringify({ok:true, rows:rows}))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ok:false, error:String(err)}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}</pre>
+        </div>
+      </details>
+    </div>
+  `;
 }
 function renderLiveImportModal(){
   if(!liveImportModalOpen) return '';
@@ -6836,12 +6938,12 @@ function renderLivePerformance(){
         <h1>라이브 현황</h1>
         <div class="sub">브랜드별로 날짜 · 요일 · 시간대 · 쇼호스트에 따른 라이브 매출 추이를 볼 수 있어요</div>
       </div>
-      <button class="btn ghost" style="color:var(--text-primary)" onclick="openLiveImportModal()">📥 엑셀로 불러오기</button>
     </div>
 
+    ${renderLiveSheetSyncCard()}
     ${renderBrandFilterBar(filterKey, promo.brands)}
 
-    ${rows.length===0 ? `<div class="card"><div class="empty">${live.performance.length===0 ? '아직 불러온 라이브 매출 데이터가 없어요. 위 "엑셀로 불러오기" 버튼으로 추가해보세요.' : '브랜드 필터에 해당하는 데이터가 없어요.'}</div></div>` : `
+    ${rows.length===0 ? `<div class="card"><div class="empty">${live.performance.length===0 ? '아직 불러온 라이브 매출 데이터가 없어요. 위 "지금 불러오기" 버튼으로 추가해보세요.' : '브랜드 필터에 해당하는 데이터가 없어요.'}</div></div>` : `
     <div class="stat-grid">
       <div class="stat-box"><div class="label">총 라이브 매출</div><div class="value mono" style="color:#7C4DFF">${formatWon(totalSales)}</div></div>
       <div class="stat-box"><div class="label">라이브 횟수</div><div class="value mono">${liveCount}회</div></div>
