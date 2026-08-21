@@ -83,6 +83,15 @@
   #forceSaveBtn{background:#2F6FED!important;color:#fff!important;border-color:#2F6FED!important;font-weight:700;margin-top:6px!important;}
   #forceSaveBtn:hover{background:#255ACB!important;}
   #forceSaveToast{position:fixed;top:22px;left:50%;transform:translateX(-50%) translateY(-14px);background:#20261F;color:#fff;padding:11px 22px;border-radius:10px;font-size:13.5px;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:999;opacity:0;pointer-events:none;transition:opacity .18s, transform .18s;}
+  #chartTooltip{position:fixed;display:none;background:#20261F;color:#fff;padding:6px 10px;border-radius:7px;font-size:12px;font-weight:700;white-space:nowrap;pointer-events:none;z-index:998;box-shadow:0 4px 14px rgba(0,0,0,.2);}
+  .live-perf-table-wrap{overflow-x:auto;}
+  .live-perf-table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap;}
+  .live-perf-table th{background:#F7F5FF;color:#6B3FB8;font-weight:700;padding:8px 10px;text-align:left;position:sticky;top:0;}
+  .live-perf-table td{padding:7px 10px;border-bottom:1px solid var(--border);}
+  .live-perf-table tr:nth-child(even) td{background:#FBFAFF;}
+  .live-perf-table input{width:88px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:11.5px;font-family:inherit;}
+  .live-perf-table input.price-input{width:76px;text-align:right;font-family:'Roboto Mono',monospace;}
+  .live-perf-prod-cell{display:flex;gap:4px;align-items:center;}
   #forceSaveToast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   #undoBtn:hover{background:#02A64C!important;}
   .sync-badge{font-size:11px;color:var(--text-secondary);padding:6px 2px;line-height:1.5;}
@@ -6530,6 +6539,13 @@ function ensureLive(){
   if(state.live.liveCalendarId2BrandsText===undefined) state.live.liveCalendarId2BrandsText = '';
   if(!Array.isArray(state.live.performance)) state.live.performance = [];
   if(state.live.liveSalesSheetUrl===undefined) state.live.liveSalesSheetUrl = '';
+  // 각 회차에 "대표 상품 3개(상품명·판매가)" 칸을 넣을 수 있게, 예전 데이터에도 빈 자리를 채워준다
+  state.live.performance.forEach(p=>{
+    if(!Array.isArray(p.products) || p.products.length!==3){
+      const old = Array.isArray(p.products) ? p.products : [];
+      p.products = [0,1,2].map(i=> old[i] || {name:'', price:''});
+    }
+  });
   return state.live;
 }
 /* 두 번째 라이브캘린더로 보낼지 여부를 정하는 브랜드 목록 (쉼표로 구분해서 저장) */
@@ -6679,7 +6695,7 @@ function runLiveImport(){
     const key = `${r.date}_${r.time}_${brand}_${r.host}`;
     let entry = live.performance.find(p=>p._importKey===key);
     if(!entry){
-      live.performance.push({id:uid(), _importKey:key, date:r.date, weekday:r.weekday, time:r.time, brand, host:r.host, content:r.content, sales:r.sales});
+      live.performance.push({id:uid(), _importKey:key, date:r.date, weekday:r.weekday, time:r.time, brand, host:r.host, content:r.content, sales:r.sales, products:[{name:'',price:''},{name:'',price:''},{name:'',price:''}]});
     } else {
       entry.weekday = r.weekday; entry.time = r.time; entry.host = r.host; entry.content = r.content; entry.sales = r.sales;
     }
@@ -6690,6 +6706,14 @@ function runLiveImport(){
   liveImportRows = null;
   render();
   alert(`${importedCount.toLocaleString('ko-KR')}건을 라이브 현황에 반영했어요.${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
+}
+function updateLivePerfTopProduct(id, idx, field, value){
+  const live = ensureLive();
+  const row = live.performance.find(p=>p.id===id);
+  if(!row) return;
+  if(!Array.isArray(row.products) || row.products.length!==3) row.products = [{name:'',price:''},{name:'',price:''},{name:'',price:''}];
+  row.products[idx][field] = field==='price' ? sanitizePromoNumber(value) : value;
+  saveState(); render();
 }
 function updateLiveSalesSheetUrl(value){
   ensureLive().liveSalesSheetUrl = value.trim();
@@ -6844,6 +6868,57 @@ function renderLiveImportModal(){
 }
 
 /* ---- 라이브 현황 시각화 ---- */
+function liveProductPriceChart(rows){
+  const sorted = rows.slice().sort((a,b)=> a.date.localeCompare(b.date) || (a.time||'').localeCompare(b.time||''));
+  const labels = sorted.map(r=> r.date.slice(5) + (r.time?(' '+r.time):''));
+  const colors = ['#FF6B9D','#2F6FED','#F0932B'];
+  const series = [0,1,2].map(idx=>({
+    color: colors[idx],
+    name: `대표상품 ${idx+1}`,
+    points: sorted.map((r,i)=>({
+      i, label:labels[i],
+      value: Number((r.products && r.products[idx] && r.products[idx].price) || 0),
+      name: (r.products && r.products[idx] && r.products[idx].name) || '',
+    })).filter(p=>p.value>0),
+  }));
+  const allVals = series.flatMap(s=>s.points.map(p=>p.value));
+  if(allVals.length===0) return `<div class="empty">입력된 대표 상품 판매가가 없어요. 아래 표에서 회차별로 입력해보세요.</div>`;
+
+  const W = 900, H = 200, padL = 56, padR = 20, padT = 16, padB = 34;
+  const maxVal = Math.max(1, ...allVals);
+  const ticks = niceAxisTicks(0, maxVal, 4);
+  const niceMax = ticks[ticks.length-1] || maxVal;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const n = sorted.length;
+  const stepX = n>1 ? innerW/(n-1) : 0;
+  const xOf = i => padL + i*stepX;
+  const yOf = v => padT + innerH - (v/niceMax)*innerH;
+  const showEveryN = Math.ceil(n/12) || 1;
+  return `
+    <div style="display:flex;gap:14px;margin-bottom:6px;flex-wrap:wrap">
+      ${series.map(s=>`<div style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-secondary)"><span style="width:10px;height:10px;border-radius:50%;background:${s.color};display:inline-block"></span>${s.name}</div>`).join('')}
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px">
+      ${ticks.map(t=>`
+        <line x1="${padL}" y1="${yOf(t)}" x2="${W-padR}" y2="${yOf(t)}" stroke="#EEF1EE" stroke-width="1"/>
+        <text x="${padL-8}" y="${yOf(t)+3}" font-size="9" fill="#9AA69C" text-anchor="end">${formatMiniAxisNumber(t)}</text>
+      `).join('')}
+      ${series.map(s=>{
+        if(s.points.length===0) return '';
+        const linePts = s.points.map(p=>`${xOf(p.i)},${yOf(p.value)}`).join(' ');
+        return `
+          <polyline points="${linePts}" fill="none" stroke="${s.color}" stroke-width="2"/>
+          ${s.points.map(p=>`
+            <circle cx="${xOf(p.i)}" cy="${yOf(p.value)}" r="2.6" fill="${s.color}"/>
+            <circle cx="${xOf(p.i)}" cy="${yOf(p.value)}" r="10" fill="transparent" style="cursor:pointer"
+              onmousemove="showChartTooltip(event,'${s.name}${p.name?(' · '+String(p.name).replace(/'/g,"\\'")):''}: ${formatWon(p.value)}')" onmouseleave="hideChartTooltip()"/>
+          `).join('')}
+        `;
+      }).join('')}
+      ${labels.map((l,i)=> i%showEveryN===0 ? `<text x="${xOf(i)}" y="${H-10}" font-size="8.5" fill="#9AA69C" text-anchor="middle">${l}</text>` : '').join('')}
+    </svg>
+  `;
+}
 function liveSalesBarChart(items, opts){
   // items: [{label, total, count}]  opts: {height, barColor, valueFmt}
   const height = opts.height || 150;
@@ -6864,6 +6939,24 @@ function liveSalesBarChart(items, opts){
     </div>
   `;
 }
+/* 차트의 점 위에 마우스를 올리면 값이 뜨는 작은 말풍선. SVG 기본 title은 뜨는 게 느리고 잘 안 보여서,
+   직접 마우스 위치를 따라다니는 말풍선을 하나 만들어서 여러 차트가 공용으로 쓴다. */
+function showChartTooltip(evt, text){
+  let tip = document.getElementById('chartTooltip');
+  if(!tip){
+    tip = document.createElement('div');
+    tip.id = 'chartTooltip';
+    document.body.appendChild(tip);
+  }
+  tip.textContent = text;
+  tip.style.display = 'block';
+  tip.style.left = (evt.clientX + 12) + 'px';
+  tip.style.top = (evt.clientY - 12) + 'px';
+}
+function hideChartTooltip(){
+  const tip = document.getElementById('chartTooltip');
+  if(tip) tip.style.display = 'none';
+}
 function liveDateLineChart(points){
   if(points.length===0) return `<div class="empty">데이터가 없습니다.</div>`;
   const W = 900, H = 200, padL = 56, padR = 20, padT = 16, padB = 34;
@@ -6883,7 +6976,11 @@ function liveDateLineChart(points){
         <text x="${padL-8}" y="${yOf(t)+3}" font-size="9" fill="#9AA69C" text-anchor="end">${formatMiniAxisNumber(t)}</text>
       `).join('')}
       <polyline points="${linePoints}" fill="none" stroke="#7C4DFF" stroke-width="2"/>
-      ${points.map((p,i)=>`<circle cx="${xOf(i)}" cy="${yOf(p.value)}" r="2.6" fill="#7C4DFF"><title>${p.label}: ${formatWon(p.value)}</title></circle>`).join('')}
+      ${points.map((p,i)=>`
+        <circle cx="${xOf(i)}" cy="${yOf(p.value)}" r="2.6" fill="#7C4DFF"/>
+        <circle cx="${xOf(i)}" cy="${yOf(p.value)}" r="10" fill="transparent" style="cursor:pointer"
+          onmousemove="showChartTooltip(event,'${p.label}: ${formatWon(p.value)}')" onmouseleave="hideChartTooltip()"/>
+      `).join('')}
       ${points.map((p,i)=> i%showEveryN===0 ? `<text x="${xOf(i)}" y="${H-10}" font-size="8.5" fill="#9AA69C" text-anchor="middle">${p.label}</text>` : '').join('')}
     </svg>
   `;
@@ -6992,6 +7089,52 @@ function renderLivePerformance(){
           `).join('')}
         </tbody>
       </table>
+    </div>
+
+    <div class="card">
+      <h2>🛒 대표 상품 판매가 추이 <span style="font-weight:400;color:var(--text-secondary);font-size:12px">(회차별로 입력한 대표 상품 3개의 판매가 변화)</span></h2>
+      ${liveProductPriceChart(rows)}
+    </div>
+
+    <div class="card">
+      <h2>📋 회차별 상세 데이터</h2>
+      <div class="helptext" style="margin-top:0">대표 상품 3개의 상품명 · 판매가를 여기서 직접 입력할 수 있어요. 입력하면 위 그래프에도 바로 반영돼요.</div>
+      <div class="live-perf-table-wrap">
+        <table class="live-perf-table">
+          <thead>
+            <tr>
+              <th>날짜</th><th>브랜드</th><th>요일</th><th>시간</th><th>쇼호스트</th><th>행사내용</th><th class="num">라이브매출</th>
+              <th>대표상품1</th><th>대표상품2</th><th>대표상품3</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.slice().sort((a,b)=>b.date.localeCompare(a.date) || (b.time||'').localeCompare(a.time||'')).map(r=>{
+              const wd = koreanWeekday(r.date);
+              const prodCell = (idx)=>{
+                const prod = (r.products && r.products[idx]) || {name:'',price:''};
+                return `
+                  <div class="live-perf-prod-cell">
+                    <input type="text" placeholder="상품명" value="${prod.name||''}" onchange="updateLivePerfTopProduct('${r.id}',${idx},'name',this.value)">
+                    <input type="text" class="price-input" placeholder="가격" value="${prod.price?Number(prod.price).toLocaleString('ko-KR'):''}" onchange="updateLivePerfTopProduct('${r.id}',${idx},'price',this.value)">
+                  </div>`;
+              };
+              return `
+              <tr>
+                <td class="mono">${r.date}</td>
+                <td>${r.brand}</td>
+                <td>${wd}</td>
+                <td class="mono">${r.time||'-'}</td>
+                <td>${r.host||'-'}</td>
+                <td>${r.content||'-'}</td>
+                <td class="num mono" style="font-weight:700;color:#7C4DFF">${formatWon(r.sales)}</td>
+                <td>${prodCell(0)}</td>
+                <td>${prodCell(1)}</td>
+                <td>${prodCell(2)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
     </div>
     `}
     ${renderLiveImportModal()}
