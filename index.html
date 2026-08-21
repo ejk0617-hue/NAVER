@@ -4532,6 +4532,7 @@ function renderSettingHelperModal(){
         (entry.startDate || entry.endDate) // 날짜 정보가 아예 없는 수기 항목은 잘못 매칭될 수 있어 아무것도 안 가져온다
       );
   const rows = [];
+  settingHelperFlatRowsCache = [];
   matches.forEach(s=>{
     (s.products||[]).forEach(p=>{
       const reg = Number(p.regPrice||0), instant = Number(p.instantDiscountPrice||0);
@@ -4542,6 +4543,11 @@ function renderSettingHelperModal(){
         regPrice:p.regPrice, reserveDiscount, instant:p.instantDiscountPrice, final:p.finalBenefitPrice, rate, link});
     });
   });
+  settingHelperFlatRowsCache = rows.map(r=>({
+    period: r.period, code: r.code==='-'?'':r.code, name: r.name==='-'?'':r.name,
+    regPrice: r.regPrice||'', reserveDiscount: Math.round(r.reserveDiscount)||0,
+    instant: r.instant||'', final: r.final||'', rate: r.rate===null?'':r.rate+'%', link: r.link||'',
+  }));
 
   return `
     <div class="modal-overlay" onclick="closeSettingHelper()">
@@ -4583,23 +4589,25 @@ function renderSettingHelperModal(){
               <th>링크${colResizerHtml('settingHelper',8)}</th>
             </tr></thead>
             <tbody>
-              ${rows.map(r=>`
+              ${rows.map((r,ri)=>{
+                const cs = (col)=>`class="cell-sel ss-copy-cell" data-source="settingHelper" data-r="${ri}" data-c="${col}" data-rspan="1" onmousedown="startCellSelect(${ri},${col},event,'settingHelper')" onmouseenter="extendCellSelect(${ri},${col})"`;
+                return `
                 <tr>
-                  <td class="mono">${r.period}</td>
-                  <td class="ss-copy-cell" onclick="copyCellValue('${String(r.code).replace(/'/g,"\\'")}', this)" title="클릭하면 복사돼요">${r.code}</td>
-                  <td>${r.name}</td>
-                  <td class="num mono">${r.regPrice? formatWon(r.regPrice):'-'}</td>
-                  <td class="num mono ss-copy-cell" style="background:#FFF4DE;color:#B4790A;font-weight:800" onclick="copyCellValue('${Math.round(r.reserveDiscount)}', this)" title="클릭하면 복사돼요">${formatWon(r.reserveDiscount)}</td>
-                  <td class="num mono">${r.instant? formatWon(r.instant):'-'}</td>
-                  <td class="num mono">${r.final? formatWon(r.final):'-'}</td>
-                  <td class="num mono">${r.rate===null?'-':r.rate+'%'}</td>
-                  <td>${r.link ? `<button class="copy-btn" onclick="copyProductLink('${r.link.replace(/'/g,"\\'")}', this)">복사 📋</button>` : `<span style="color:var(--text-secondary);font-size:12px">미등록</span>`}</td>
-                </tr>
-              `).join('')}
+                  <td ${cs(0)} class="mono">${r.period}</td>
+                  <td ${cs(1)} onclick="copyCellValue('${String(r.code).replace(/'/g,"\\'")}', this)" title="클릭 또는 드래그해서 복사돼요">${r.code}</td>
+                  <td ${cs(2)}>${r.name}</td>
+                  <td ${cs(3)} class="num mono">${r.regPrice? formatWon(r.regPrice):'-'}</td>
+                  <td ${cs(4)} class="num mono" style="background:#FFF4DE;color:#B4790A;font-weight:800" onclick="copyCellValue('${Math.round(r.reserveDiscount)}', this)" title="클릭 또는 드래그해서 복사돼요">${formatWon(r.reserveDiscount)}</td>
+                  <td ${cs(5)} class="num mono">${r.instant? formatWon(r.instant):'-'}</td>
+                  <td ${cs(6)} class="num mono">${r.final? formatWon(r.final):'-'}</td>
+                  <td ${cs(7)} class="num mono">${r.rate===null?'-':r.rate+'%'}</td>
+                  <td ${cs(8)}>${r.link ? `<button class="copy-btn" onclick="copyProductLink('${r.link.replace(/'/g,"\\'")}', this)">복사 📋</button>` : `<span style="color:var(--text-secondary);font-size:12px">미등록</span>`}</td>
+                </tr>`;
+              }).join('')}
             </tbody>
           </table>
         </div>`}
-        <div class="helptext">금액셋팅값은 <b>등록가 − 즉시할인가</b>로 자동 계산돼요. <b>상품코드·금액셋팅값 칸은 클릭하면 바로 복사</b>돼요. 링크는 "복사" 버튼으로 바로 복사해서 쓰시면 돼요. "미등록"으로 뜨면 <b>프로모션 &gt; 관리</b> 화면 아래 "브랜드별 링크 관리"에서 상품링크 접두사를 먼저 등록해주세요.</div>
+        <div class="helptext">금액셋팅값은 <b>등록가 − 즉시할인가</b>로 자동 계산돼요. <b>상품코드·금액셋팅값 칸은 클릭하면 바로 복사</b>되고, <b>표의 어느 칸이든 마우스로 드래그해서 영역을 선택한 뒤 Ctrl+C(맥은 Cmd+C)로 한 번에 복사</b>해서 엑셀에 붙여넣을 수 있어요. 링크는 "복사" 버튼으로 바로 복사해서 쓰시면 돼요. "미등록"으로 뜨면 <b>프로모션 &gt; 관리</b> 화면 아래 "브랜드별 링크 관리"에서 상품링크 접두사를 먼저 등록해주세요.</div>
       </div>
     </div>
   `;
@@ -6200,6 +6208,8 @@ let selectedSelectionIds = new Set(); // 화면 전용 상태 — 선정리스�
    선택/복사할 때는 병합된 값을 각 행에 반복해서 채워 넣는다(스프레드시트에서 병합칸을 복사할 때와 동일).
    렌더링할 때 selectionFlatRowsCache에 "상품 1건 = 1행" 기준의 실제 값들을 함께 저장해두고 복사 시 사용한다. */
 let selectionFlatRowsCache = [];
+let settingHelperFlatRowsCache = []; // 셋팅도우미 표용 드래그 선택/복사 캐시 (선정리스트와 같은 방식)
+let cellSelSource = 'selections'; // 지금 드래그 선택 중인 표가 어느 것인지('selections' | 'settingHelper')
 let cellSelStart = null; // {r,c}
 let cellSelEnd = null;
 let cellSelDragging = false;
@@ -6218,11 +6228,14 @@ function isCellInSelRange(r, c, rspan){
 }
 function applyCellSelectHighlights(){
   document.querySelectorAll('.cell-sel').forEach(td=>{
+    const src = td.dataset.source || 'selections';
+    if(src !== cellSelSource){ td.classList.remove('cell-sel-active'); return; }
     const r = parseInt(td.dataset.r,10), c = parseInt(td.dataset.c,10), rspan = parseInt(td.dataset.rspan||'1',10);
     td.classList.toggle('cell-sel-active', isCellInSelRange(r,c,rspan));
   });
 }
-function startCellSelect(r, c, e){
+function startCellSelect(r, c, e, source){
+  cellSelSource = source || 'selections';
   cellSelDragging = true;
   cellSelStart = {r,c};
   cellSelEnd = {r,c};
@@ -6247,13 +6260,15 @@ document.addEventListener('keydown', function(e){
   // 포커스도 잠깐 빼서 브라우저가 끼어들지 않게 한다.
   e.preventDefault();
   if(active && typeof active.blur==='function') active.blur();
+  const flatCache = cellSelSource==='settingHelper' ? settingHelperFlatRowsCache : selectionFlatRowsCache;
+  const flatCols = cellSelSource==='settingHelper' ? SETTING_HELPER_FLAT_COLS : SELECTION_FLAT_COLS;
   const lines = [];
   for(let r=range.r0; r<=range.r1; r++){
-    const row = selectionFlatRowsCache[r];
+    const row = flatCache[r];
     if(!row) continue;
     const cols = [];
     for(let c=range.c0; c<=range.c1; c++){
-      cols.push(String(row[SELECTION_FLAT_COLS[c]] ?? ''));
+      cols.push(String(row[flatCols[c]] ?? ''));
     }
     lines.push(cols.join('\t'));
   }
@@ -6266,6 +6281,7 @@ document.addEventListener('keydown', function(e){
   });
 });
 const SELECTION_FLAT_COLS = ['startDate','endDate','promoName','exposureSlot','exposureDate','brand','code','name','regPrice','instantDiscountPrice','finalBenefitPrice','rate'];
+const SETTING_HELPER_FLAT_COLS = ['period','code','name','regPrice','reserveDiscount','instant','final','rate','link'];
 
 function toggleSelectionCheck(id){
   if(selectedSelectionIds.has(id)) selectedSelectionIds.delete(id);
@@ -6356,8 +6372,8 @@ function renderPromoSelected(){
                 regPrice:p.regPrice||'', instantDiscountPrice:p.instantDiscountPrice||'', finalBenefitPrice:p.finalBenefitPrice||'',
                 rate: rate===null?'':rate+'%',
               };
-              const cs = (col)=>`class="cell-sel" data-r="${r}" data-c="${col}" data-rspan="1" onmousedown="startCellSelect(${r},${col},event)" onmouseenter="extendCellSelect(${r},${col})"`;
-              const csSpan = (col)=>`class="cell-sel" data-r="${entryStartRow}" data-c="${col}" data-rspan="${n}" onmousedown="startCellSelect(${entryStartRow},${col},event)" onmouseenter="extendCellSelect(${entryStartRow},${col})"`;
+              const cs = (col)=>`class="cell-sel" data-source="selections" data-r="${r}" data-c="${col}" data-rspan="1" onmousedown="startCellSelect(${r},${col},event,'selections')" onmouseenter="extendCellSelect(${r},${col})"`;
+              const csSpan = (col)=>`class="cell-sel" data-source="selections" data-r="${entryStartRow}" data-c="${col}" data-rspan="${n}" onmousedown="startCellSelect(${entryStartRow},${col},event,'selections')" onmouseenter="extendCellSelect(${entryStartRow},${col})"`;
               return `
               <tr class="${rowClass}" ondragover="sheetDragOverRow(event)" ondragleave="sheetDragLeaveRow(event)" ondrop="sheetDropRow(event,'selections','${s.id}')">
                 ${pi===0 ? `<td rowspan="${n}" style="text-align:center"><input type="checkbox" ${selectedSelectionIds.has(s.id)?'checked':''} onclick="toggleSelectionCheck('${s.id}')"></td>` : ''}
