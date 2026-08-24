@@ -5836,13 +5836,19 @@ async function pushCalendarEvent(kind, entryId){
   } else if(kind==='selected'){
     const calId = (ensurePromotion().selectedCalendarId||'').trim();
     if(!calId) return;
-    const p = ensurePromotion().proposals.find(x=>x.id===entryId);
+    const promoObj = ensurePromotion();
+    const p = promoObj.proposals.find(x=>x.id===entryId);
     const sel = p ? selectedBrandsOf(p) : [];
     if(!p || sel.length===0 || !p.periodStart || !p.periodEnd){
       payloads.push({type:'calendar', calendarId:calId, id:'selected_'+entryId, action:'delete'});
     } else {
+      // 브랜드별 선정리스트 항목에 노출일이 등록되어 있으면, 그 브랜드명 뒤에 괄호로 노출일을 같이 붙인다
+      const brandLabels = sel.map(b=>{
+        const selEntry = promoObj.selections.find(s=>s.sourceProposalId===p.id && s.brand===b);
+        return (selEntry && selEntry.exposureDate) ? `${b}(${selEntry.exposureDate})` : b;
+      });
       payloads.push({type:'calendar', calendarId:calId, id:'selected_'+entryId, action:'upsert', allDay:true,
-        startDate:p.periodStart, endDate:p.periodEnd, title:(p.promoName||'(제목 없음)')+'_'+sel.join(','), description:''});
+        startDate:p.periodStart, endDate:p.periodEnd, title:(p.promoName||'(제목 없음)')+'_'+brandLabels.join(','), description:''});
     }
   } else if(kind==='live'){
     const live = ensureLive();
@@ -6136,6 +6142,8 @@ function updateSelectionField(id, field, value){
   touch(row);
   saveState(); render();
   scheduleSelectionSheetSync(id);
+  // 노출일은 선정캘린더 이벤트 제목에도 괄호로 같이 표시되니까, 그 캘린더 이벤트도 다시 동기화한다
+  if(field==='exposureDate' && row.sourceProposalId) scheduleCalendarSync('selected', row.sourceProposalId);
 }
 function addSelectionProduct(entryId){
   const promo = ensurePromotion();
