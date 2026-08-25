@@ -5775,7 +5775,7 @@ async function resyncSelectionEntryToSheet(entryId){
       rowKey: `${s.id}_${p.id}`,
       startDate: s.startDate||'', endDate: s.endDate||'', promoName: s.promoName||'',
       exposureSlot: s.exposureSlot||'', exposureDate: s.exposureDate||'',
-      brand: s.brand ? (s.exposureDate ? `${s.brand}(${s.exposureDate})` : s.brand) : '',
+      brand: s.brand||'',
       code: p.code||'', name: p.name||'',
       regPrice: p.regPrice||'', instantDiscountPrice: p.instantDiscountPrice||'', finalBenefitPrice: p.finalBenefitPrice||'',
       rate: rate===null ? '' : rate+'%',
