@@ -6918,6 +6918,7 @@ function runLiveImport(){
   }
   const live = ensureLive();
   let importedCount = 0, skippedCount = 0;
+  const syncedScheduleIds = [];
   liveImportRows.forEach(r=>{
     const brand = liveImportMapping[r.brand];
     if(!brand){ skippedCount++; return; }
@@ -6930,12 +6931,26 @@ function runLiveImport(){
       entry.weekday = r.weekday; entry.time = r.time; entry.host = r.host; entry.content = r.content; entry.sales = r.sales;
     }
     importedCount++;
+
+    // 라이브 일정(및 라이브 캘린더)에도 자동으로 반영한다 — 엑셀/시트에서 매출을 불러오면
+    // 방송 일정을 손으로 다시 입력할 필요 없이 캘린더에 바로 나타난다.
+    // 날짜·시간·브랜드가 같으면 같은 방송으로 보고 갱신한다(호스트가 여러 명이어도 방송 슬롯은 하나).
+    const scheduleKey = `${r.date}_${r.time}_${brand}`;
+    let scheduleEntry = live.schedule.find(s=>s._importKey===scheduleKey);
+    if(!scheduleEntry){
+      scheduleEntry = {id:uid(), _importKey:scheduleKey, date:r.date, time:r.time, liveId:'', brand, content:r.content, sortIndex: nextSortIndex(live.schedule)};
+      live.schedule.unshift(scheduleEntry);
+    }
+    scheduleEntry.content = r.content || scheduleEntry.content;
+    touch(scheduleEntry);
+    syncedScheduleIds.push(scheduleEntry.id);
   });
   saveState();
+  syncedScheduleIds.forEach(id=>scheduleCalendarSync('live', id));
   liveImportModalOpen = false;
   liveImportRows = null;
   render();
-  alert(`${importedCount.toLocaleString('ko-KR')}건을 라이브 현황에 반영했어요.${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
+  alert(`${importedCount.toLocaleString('ko-KR')}건을 라이브 현황 · 라이브 일정에 반영했어요.${live.liveCalendarId||live.liveCalendarId2 ? ' 캘린더 연동도 설정되어 있으면 잠시 후 자동 반영돼요.' : ''}${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
 }
 function updateLivePerfTopProduct(id, idx, field, value){
   const live = ensureLive();
