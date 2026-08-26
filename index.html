@@ -6848,6 +6848,18 @@ function openLiveImportModal(){ liveImportModalOpen = true; liveImportRows = nul
 function closeLiveImportModal(){ liveImportModalOpen = false; render(); }
 /* 엑셀에서 읽은 행이든, 구글시트에서 읽은 행이든(둘 다 "헤더이름: 값" 형태의 객체 배열) 똑같은 방식으로
    열을 자동 인식하고 정리한다. 채널이 "네이버"가 아닌 행은 걸러낸다. */
+/* 엑셀/구글시트의 "시간" 칸(예: 11:00)은 내부적으로 1899-12-30 기준 날짜+시각으로 저장되곤 해서,
+   Date 객체로 오면 그대로 문자열로 바꿨을 때 엉뚱한 값이 나온다. 그래서 항상 "HH:mm"만 뽑아낸다. */
+function normalizeExcelTimeToHM(v){
+  if(v===undefined || v===null || v==='') return '';
+  if(v instanceof Date && !isNaN(v)){
+    return `${String(v.getHours()).padStart(2,'0')}:${String(v.getMinutes()).padStart(2,'0')}`;
+  }
+  const s = String(v).trim();
+  const hmMatch = s.match(/(\d{1,2}):(\d{2})/); // "11:00", "2026-08-05 11:00" 등 어디에 있든 시:분만 뽑아낸다
+  if(hmMatch) return `${hmMatch[1].padStart(2,'0')}:${hmMatch[2]}`;
+  return s;
+}
 function parseLiveRows(rows){
   if(!rows || rows.length===0) return [];
   const headers = Object.keys(rows[0]);
@@ -6871,7 +6883,7 @@ function parseLiveRows(rows){
     return {
       date,
       weekday: weekdayCol ? String(r[weekdayCol]||'').trim() : '',
-      time: timeCol ? String(r[timeCol]||'').trim() : '',
+      time: timeCol ? normalizeExcelTimeToHM(r[timeCol]) : '',
       brand,
       host: hostCol ? String(r[hostCol]||'').trim() : '',
       content: contentCol ? String(r[contentCol]||'').trim() : '',
@@ -7045,10 +7057,15 @@ function renderLiveSheetSyncCard(){
       headers.forEach(function(h, i){
         if (!h) return;
         var v = row[i];
-        // 날짜 칸을 getFullYear()/getMonth()/getDate()로 직접 꺼내면, 이 스크립트가 실행되는 시간대와
-        // 시트의 시간대가 다를 때 하루가 밀리는 문제가 생긴다. 그래서 시트 자체의 시간대를 명시해서 변환한다.
+        // 구글시트에서 "시간만" 있는 칸(예: 11:00)도 내부적으로는 날짜 객체로 저장되는데(1899-12-30
+        // 기준), 이걸 날짜 칸과 똑같이 "yyyy-MM-dd"로 바꾸면 시각 정보가 통째로 날아가 버린다.
+        // 그래서 "시간"이 들어간 열 이름은 "HH:mm"으로, 나머지 날짜 열은 "yyyy-MM-dd"로 구분해서 바꾼다.
         if (v instanceof Date) {
-          v = Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+          if (/시간/.test(h)) {
+            v = Utilities.formatDate(v, tz, 'HH:mm');
+          } else {
+            v = Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+          }
         }
         obj[h] = v;
       });
