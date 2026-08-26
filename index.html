@@ -369,6 +369,8 @@
   .col-filter-popover-actions button{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;font-weight:700;padding:0;}
   .col-filter-item{display:flex;align-items:center;gap:6px;padding:4px 2px;font-size:12px;color:var(--text-primary);cursor:pointer;white-space:nowrap;}
   .col-filter-empty{font-size:11px;color:var(--text-secondary);padding:4px 2px;}
+  .col-filter-clear-x{flex-shrink:0;width:24px;height:24px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--negative);cursor:pointer;font-weight:800;font-size:13px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;}
+  .col-filter-clear-x:hover{background:#FFF0F0;}
   th.col-th-filtered{background:#E4F8EC;}
   th.col-th-filtered .col-filter-head > span{color:var(--accent);font-weight:900;}
   td.num, th.num{text-align:right;}
@@ -1603,11 +1605,17 @@ function render(){
       </div>`;
   }
 
+  // 이전 렌더링에서 body로 옮겨놨던 팝업이 있으면 먼저 지운다 — 매번 다시 그려질 때마다 #main
+  // 안에는 새 팝업이 새로 생기기 때문에, 안 지우면 body에 예전 것들이 계속 쌓인다
+  Array.from(document.body.children).forEach(el=>{ if(el.id==='colFilterPopoverEl') el.remove(); });
   // 열려있는 헤더 필터 팝오버가 있으면, 스크롤 영역에 안 잘리도록 버튼 위치를 기준으로 화면 좌표를 직접 계산해서 배치한다
   if(colFilterPopoverOpen){
     const btn = document.getElementById('colFilterActiveBtn');
     const pop = document.getElementById('colFilterPopoverEl');
     if(btn && pop){
+      // 표 안(th)에 그대로 두면, 옆 칸의 쌓임 순서에 밀려서 팝업이 옆 헤더 아래로 들어가 보이는 문제가
+      // 있었다. body 바로 아래로 실제로 옮겨서(포탈), 어떤 셀과도 쌓임 순서 경쟁을 안 하게 만든다.
+      document.body.appendChild(pop);
       const rect = btn.getBoundingClientRect();
       let left = rect.left;
       const popWidth = pop.offsetWidth || 200;
@@ -4385,9 +4393,11 @@ function renderTextColFilterHeader(table, col, label){
       <span>${label}</span>
       <button id="${isOpen?'colFilterActiveBtn':''}" class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
       ${isOpen ? `
-        <div id="colFilterPopoverEl" class="col-filter-popover" onclick="event.stopPropagation()" style="min-width:180px">
-          <input type="text" id="colFilterTextInput" class="row-input" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 8px;text-align:left;font-weight:400" placeholder="검색어 입력" value="${search}" oninput="updateColTextFilter('${table}','${col}',this.value)">
-          ${hasActive ? `<button style="margin-top:6px;font-size:11px;background:none;border:none;color:var(--negative);cursor:pointer;font-weight:700;padding:0" onclick="clearColTextFilter('${table}','${col}')">지우기</button>` : ''}
+        <div id="colFilterPopoverEl" class="col-filter-popover" onclick="event.stopPropagation()" style="width:190px">
+          <div style="display:flex;align-items:center;gap:5px">
+            <input type="text" id="colFilterTextInput" class="row-input" style="flex:1;min-width:0;border:1px solid var(--border);border-radius:6px;padding:6px 8px;text-align:left;font-weight:400" placeholder="검색어 입력" value="${search}" oninput="updateColTextFilter('${table}','${col}',this.value)">
+            ${hasActive ? `<button class="col-filter-clear-x" onclick="clearColTextFilter('${table}','${col}')" title="지우기">✕</button>` : ''}
+          </div>
         </div>
       ` : ''}
     </div>
