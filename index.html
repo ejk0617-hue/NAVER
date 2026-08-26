@@ -364,7 +364,7 @@
   .col-filter-btn{background:none;border:none;cursor:pointer;font-size:9px;color:var(--text-secondary);padding:2px;line-height:1;}
   .col-filter-btn.active{color:var(--accent);font-weight:900;}
   .col-filter-btn:hover{color:var(--text-primary);}
-  .col-filter-popover{position:absolute;top:100%;left:0;margin-top:4px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;min-width:140px;max-width:220px;max-height:260px;overflow-y:auto;z-index:80;text-transform:none;font-weight:400;letter-spacing:normal;}
+  .col-filter-popover{position:fixed;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;min-width:140px;max-width:220px;max-height:260px;overflow-y:auto;z-index:200;text-transform:none;font-weight:400;letter-spacing:normal;}
   .col-filter-popover-actions{margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border);}
   .col-filter-popover-actions button{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;font-weight:700;padding:0;}
   .col-filter-item{display:flex;align-items:center;gap:6px;padding:4px 2px;font-size:12px;color:var(--text-primary);cursor:pointer;white-space:nowrap;}
@@ -1599,6 +1599,27 @@ function render(){
           <button class="btn ghost" onclick="if(confirm('저장된 모든 데이터를 초기화할까요? 이 작업은 되돌릴 수 없습니다.')){ localStorage.removeItem(STORAGE_KEY); location.reload(); }">데이터 초기화 후 새로고침</button>
         </div>
       </div>`;
+  }
+
+  // 열려있는 헤더 필터 팝오버가 있으면, 스크롤 영역에 안 잘리도록 버튼 위치를 기준으로 화면 좌표를 직접 계산해서 배치한다
+  if(colFilterPopoverOpen){
+    const btn = document.getElementById('colFilterActiveBtn');
+    const pop = document.getElementById('colFilterPopoverEl');
+    if(btn && pop){
+      const rect = btn.getBoundingClientRect();
+      let left = rect.left;
+      const popWidth = pop.offsetWidth || 200;
+      if(left + popWidth > window.innerWidth - 10) left = Math.max(10, window.innerWidth - popWidth - 10);
+      pop.style.top = (rect.bottom + 4) + 'px';
+      pop.style.left = left + 'px';
+    }
+    // 텍스트 검색칸은 한 글자 입력할 때마다 다시 그려지면서 포커스가 풀리니, 커서 위치까지 그대로 복원한다
+    const textInput = document.getElementById('colFilterTextInput');
+    if(textInput){
+      textInput.focus();
+      const len = textInput.value.length;
+      textInput.setSelectionRange(len, len);
+    }
   }
 
   // 스크롤 위치 복원
@@ -4266,9 +4287,9 @@ function renderBrandColFilterHeader(filterKey, label, allBrands){
   return `
     <div class="col-filter-head">
       <span>${label}</span>
-      <button class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
+      <button id="${isOpen?'colFilterActiveBtn':''}" class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
       ${isOpen ? `
-        <div class="col-filter-popover" onclick="event.stopPropagation()">
+        <div id="colFilterPopoverEl" class="col-filter-popover" onclick="event.stopPropagation()">
           <div class="col-filter-popover-actions">
             <button onclick="setAllBrandFilterIn('${filterKey}', true)">전체 선택</button>
           </div>
@@ -4290,9 +4311,9 @@ function renderColFilterHeader(table, col, label, values){
   return `
     <div class="col-filter-head">
       <span>${label}</span>
-      <button class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
+      <button id="${isOpen?'colFilterActiveBtn':''}" class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
       ${isOpen ? `
-        <div class="col-filter-popover" onclick="event.stopPropagation()">
+        <div id="colFilterPopoverEl" class="col-filter-popover" onclick="event.stopPropagation()">
           <div class="col-filter-popover-actions">
             <button onclick="clearColFilter('${table}','${col}')">전체 선택</button>
           </div>
@@ -4330,10 +4351,10 @@ function renderTextColFilterHeader(table, col, label){
   return `
     <div class="col-filter-head">
       <span>${label}</span>
-      <button class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
+      <button id="${isOpen?'colFilterActiveBtn':''}" class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
       ${isOpen ? `
-        <div class="col-filter-popover" onclick="event.stopPropagation()" style="min-width:180px">
-          <input type="text" class="row-input" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 8px;text-align:left;font-weight:400" placeholder="검색어 입력" value="${search}" oninput="updateColTextFilter('${table}','${col}',this.value)">
+        <div id="colFilterPopoverEl" class="col-filter-popover" onclick="event.stopPropagation()" style="min-width:180px">
+          <input type="text" id="colFilterTextInput" class="row-input" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 8px;text-align:left;font-weight:400" placeholder="검색어 입력" value="${search}" oninput="updateColTextFilter('${table}','${col}',this.value)">
           ${hasActive ? `<button style="margin-top:6px;font-size:11px;background:none;border:none;color:var(--negative);cursor:pointer;font-weight:700;padding:0" onclick="updateColTextFilter('${table}','${col}','')">지우기</button>` : ''}
         </div>
       ` : ''}
