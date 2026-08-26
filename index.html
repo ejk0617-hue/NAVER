@@ -369,6 +369,8 @@
   .col-filter-popover-actions button{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;font-weight:700;padding:0;}
   .col-filter-item{display:flex;align-items:center;gap:6px;padding:4px 2px;font-size:12px;color:var(--text-primary);cursor:pointer;white-space:nowrap;}
   .col-filter-empty{font-size:11px;color:var(--text-secondary);padding:4px 2px;}
+  th.col-th-filtered{background:#E4F8EC;}
+  th.col-th-filtered .col-filter-head > span{color:var(--accent);font-weight:900;}
   td.num, th.num{text-align:right;}
   tr.current-month td{background:#F0EAFF;}
   tr.brg-warn td{background:#FFF3D9;}
@@ -4257,6 +4259,15 @@ function isColValueVisible(table, col, value){
   if(!excluded) return true;
   return !excluded.includes(value);
 }
+/* 그 열에 지금 필터가 걸려있는지(체크박스든 텍스트검색이든) 한 번에 판단 — 헤더 색상 표시용 */
+function isColFilterActive(table, col){
+  const f = ensureColumnFilters(table)[col];
+  if(Array.isArray(f) && f.length>0) return true;
+  return !!getColTextFilter(table, col);
+}
+function isBrandColFilterActive(filterKey, allBrands){
+  return allBrands.some(b=>!isBrandVisibleIn(filterKey, b));
+}
 function toggleColFilterPopover(table, col, evt){
   if(evt) evt.stopPropagation();
   colFilterPopoverOpen = (colFilterPopoverOpen && colFilterPopoverOpen.table===table && colFilterPopoverOpen.col===col) ? null : {table, col};
@@ -6175,11 +6186,12 @@ function renderProposalSheet(rows, opts){
           <tr>
             ${PROPOSALS_COL_LABELS.map((label,i)=>{
               let inner = label;
-              if(i===4) inner = renderBrandColFilterHeader('proposalFilter', label, promo.brands);
-              else if(i===5) inner = renderTextColFilterHeader('proposals','promoName', label);
-              else if(i===6) inner = renderColFilterHeader('proposals','grade', label, PROMO_GRADE_OPTIONS);
-              else if(i===7) inner = renderColFilterHeader('proposals','owner', label, promo.owners||[]);
-              return `<th>${inner}${colResizerHtml('proposals',i)}</th>`;
+              let active = false;
+              if(i===4){ inner = renderBrandColFilterHeader('proposalFilter', label, promo.brands); active = isBrandColFilterActive('proposalFilter', promo.brands); }
+              else if(i===5){ inner = renderTextColFilterHeader('proposals','promoName', label); active = isColFilterActive('proposals','promoName'); }
+              else if(i===6){ inner = renderColFilterHeader('proposals','grade', label, PROMO_GRADE_OPTIONS); active = isColFilterActive('proposals','grade'); }
+              else if(i===7){ inner = renderColFilterHeader('proposals','owner', label, promo.owners||[]); active = isColFilterActive('proposals','owner'); }
+              return `<th class="${active?'col-th-filtered':''}">${inner}${colResizerHtml('proposals',i)}</th>`;
             }).join('')}
           </tr>
         </thead>
@@ -6569,14 +6581,17 @@ function renderPromoSelected(){
             <th style="text-align:center"><input type="checkbox" ${allChecked?'checked':''} onclick='toggleAllSelectionChecks(${JSON.stringify(visibleIds)})' title="전체 선택"></th>
             ${SELECTIONS_COL_LABELS.map((label,i)=>{
               let inner = label;
-              if(i===2) inner = renderTextColFilterHeader('selections','promoName', label);
+              let active = false;
+              if(i===2){ inner = renderTextColFilterHeader('selections','promoName', label); active = isColFilterActive('selections','promoName'); }
               else if(i===4){
                 const uniqueExposureSlots = Array.from(new Set(promo.selections.map(s=>s.exposureSlot||'')));
                 inner = renderColFilterHeader('selections','exposureSlot', label, uniqueExposureSlots);
+                active = isColFilterActive('selections','exposureSlot');
               } else if(i===6){
                 inner = renderBrandColFilterHeader('selectionFilter', label, promo.brands);
+                active = isBrandColFilterActive('selectionFilter', promo.brands);
               }
-              return `<th>${inner}${colResizerHtml('selections',i+1)}</th>`;
+              return `<th class="${active?'col-th-filtered':''}">${inner}${colResizerHtml('selections',i+1)}</th>`;
             }).join('')}
           </tr>
         </thead>
