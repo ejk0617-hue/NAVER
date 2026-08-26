@@ -360,6 +360,15 @@
      padding:9px 10px;border-bottom:1px solid var(--border);white-space:nowrap;}
   td{padding:9px 10px;border-bottom:1px solid #EEF0F3;vertical-align:middle;overflow:hidden;}
   tr:last-child td{border-bottom:none;}
+  .col-filter-head{display:flex;align-items:center;gap:4px;position:relative;}
+  .col-filter-btn{background:none;border:none;cursor:pointer;font-size:9px;color:var(--text-secondary);padding:2px;line-height:1;}
+  .col-filter-btn.active{color:var(--accent);font-weight:900;}
+  .col-filter-btn:hover{color:var(--text-primary);}
+  .col-filter-popover{position:absolute;top:100%;left:0;margin-top:4px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:8px;min-width:140px;max-width:220px;max-height:260px;overflow-y:auto;z-index:80;text-transform:none;font-weight:400;letter-spacing:normal;}
+  .col-filter-popover-actions{margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid var(--border);}
+  .col-filter-popover-actions button{font-size:11px;background:none;border:none;color:var(--accent);cursor:pointer;font-weight:700;padding:0;}
+  .col-filter-item{display:flex;align-items:center;gap:6px;padding:4px 2px;font-size:12px;color:var(--text-primary);cursor:pointer;white-space:nowrap;}
+  .col-filter-empty{font-size:11px;color:var(--text-secondary);padding:4px 2px;}
   td.num, th.num{text-align:right;}
   tr.current-month td{background:#F0EAFF;}
   tr.brg-warn td{background:#FFF3D9;}
@@ -4213,6 +4222,126 @@ async function runExcelImport(){
   }
 }
 
+/* ---- 제목행(헤더) 필터 — 구글 스프레드시트처럼, 열 머리글의 ▾ 버튼을 누르면 그 열에 어떤
+   값들이 있는지 체크박스로 보여주고, 체크 해제한 값이 있는 행은 화면에서 숨긴다. ---- */
+let colFilterPopoverOpen = null; // {table, col}
+function ensureColumnFilters(table){
+  const promo = ensurePromotion();
+  if(!promo.columnFilters || typeof promo.columnFilters!=='object') promo.columnFilters = {};
+  if(!promo.columnFilters[table] || typeof promo.columnFilters[table]!=='object') promo.columnFilters[table] = {};
+  return promo.columnFilters[table];
+}
+function isColValueVisible(table, col, value){
+  const excluded = ensureColumnFilters(table)[col];
+  if(!excluded) return true;
+  return !excluded.includes(value);
+}
+function toggleColFilterPopover(table, col, evt){
+  if(evt) evt.stopPropagation();
+  colFilterPopoverOpen = (colFilterPopoverOpen && colFilterPopoverOpen.table===table && colFilterPopoverOpen.col===col) ? null : {table, col};
+  render();
+}
+function closeColFilterPopover(){
+  if(colFilterPopoverOpen){ colFilterPopoverOpen = null; render(); }
+}
+function toggleColFilterValue(table, col, value){
+  const filters = ensureColumnFilters(table);
+  if(!filters[col]) filters[col] = [];
+  const idx = filters[col].indexOf(value);
+  if(idx>=0) filters[col].splice(idx,1); else filters[col].push(value);
+  if(filters[col].length===0) delete filters[col];
+  saveState(); render();
+}
+function clearColFilter(table, col){
+  const filters = ensureColumnFilters(table);
+  if(filters[col]){ delete filters[col]; saveState(); render(); }
+}
+/* 브랜드 열은 이미 표 위에 있는 "브랜드 필터" 체크박스 바(같은 filterKey)와 상태를 공유한다 —
+   두 UI가 서로 다른 필터처럼 따로 놀지 않게 하기 위함. */
+function renderBrandColFilterHeader(filterKey, label, allBrands){
+  const table = filterKey==='proposalFilter' ? 'proposals' : 'selections';
+  const col = 'brand';
+  const hasActive = allBrands.some(b=>!isBrandVisibleIn(filterKey, b));
+  const isOpen = colFilterPopoverOpen && colFilterPopoverOpen.table===table && colFilterPopoverOpen.col===col;
+  return `
+    <div class="col-filter-head">
+      <span>${label}</span>
+      <button class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
+      ${isOpen ? `
+        <div class="col-filter-popover" onclick="event.stopPropagation()">
+          <div class="col-filter-popover-actions">
+            <button onclick="setAllBrandFilterIn('${filterKey}', true)">전체 선택</button>
+          </div>
+          ${allBrands.length===0 ? `<div class="col-filter-empty">값 없음</div>` : allBrands.map(b=>`
+            <label class="col-filter-item">
+              <input type="checkbox" ${isBrandVisibleIn(filterKey, b)?'checked':''} onclick="toggleBrandFilterIn('${filterKey}','${b.replace(/'/g,"\\'")}')">
+              <span>${b}</span>
+            </label>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+function renderColFilterHeader(table, col, label, values){
+  const excluded = ensureColumnFilters(table)[col] || [];
+  const hasActive = excluded.length>0;
+  const isOpen = colFilterPopoverOpen && colFilterPopoverOpen.table===table && colFilterPopoverOpen.col===col;
+  return `
+    <div class="col-filter-head">
+      <span>${label}</span>
+      <button class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
+      ${isOpen ? `
+        <div class="col-filter-popover" onclick="event.stopPropagation()">
+          <div class="col-filter-popover-actions">
+            <button onclick="clearColFilter('${table}','${col}')">전체 선택</button>
+          </div>
+          ${values.length===0 ? `<div class="col-filter-empty">값 없음</div>` : values.map(v=>`
+            <label class="col-filter-item">
+              <input type="checkbox" ${excluded.includes(v)?'':'checked'} onclick="toggleColFilterValue('${table}','${col}','${String(v).replace(/'/g,"\\'")}')">
+              <span>${v || '(비어있음)'}</span>
+            </label>
+          `).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+/* 프로모션명처럼 값이 다 제각각인 자유 텍스트 열은, 체크박스로 일일이 고르게 하는 대신
+   검색어를 입력하면 그 글자가 포함된 행만 남기는 방식으로 필터한다. */
+function getColTextFilter(table, col){
+  return ensureColumnFilters(table)[col+'__search'] || '';
+}
+function updateColTextFilter(table, col, value){
+  const filters = ensureColumnFilters(table);
+  const key = col+'__search';
+  if(value) filters[key] = value; else delete filters[key];
+  saveState(); render();
+}
+function isColTextVisible(table, col, value){
+  const search = getColTextFilter(table, col);
+  if(!search) return true;
+  return String(value||'').toLowerCase().includes(search.toLowerCase());
+}
+function renderTextColFilterHeader(table, col, label){
+  const search = getColTextFilter(table, col);
+  const hasActive = !!search;
+  const isOpen = colFilterPopoverOpen && colFilterPopoverOpen.table===table && colFilterPopoverOpen.col===col;
+  return `
+    <div class="col-filter-head">
+      <span>${label}</span>
+      <button class="col-filter-btn ${hasActive?'active':''}" onclick="toggleColFilterPopover('${table}','${col}',event)" title="필터">▾</button>
+      ${isOpen ? `
+        <div class="col-filter-popover" onclick="event.stopPropagation()" style="min-width:180px">
+          <input type="text" class="row-input" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 8px;text-align:left;font-weight:400" placeholder="검색어 입력" value="${search}" oninput="updateColTextFilter('${table}','${col}',this.value)">
+          ${hasActive ? `<button style="margin-top:6px;font-size:11px;background:none;border:none;color:var(--negative);cursor:pointer;font-weight:700;padding:0" onclick="updateColTextFilter('${table}','${col}','')">지우기</button>` : ''}
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+document.addEventListener('click', closeColFilterPopover);
+
 function renderBrandFilterBar(filterKey, brands){
   if(brands.length===0) return '';
   return `
@@ -6002,7 +6131,14 @@ function renderProposalSheet(rows, opts){
         ${renderColGroup('proposals', PROPOSALS_COL_DEFAULTS)}
         <thead>
           <tr>
-            ${PROPOSALS_COL_LABELS.map((label,i)=>`<th>${label}${colResizerHtml('proposals',i)}</th>`).join('')}
+            ${PROPOSALS_COL_LABELS.map((label,i)=>{
+              let inner = label;
+              if(i===4) inner = renderBrandColFilterHeader('proposalFilter', label, promo.brands);
+              else if(i===5) inner = renderTextColFilterHeader('proposals','promoName', label);
+              else if(i===6) inner = renderColFilterHeader('proposals','grade', label, PROMO_GRADE_OPTIONS);
+              else if(i===7) inner = renderColFilterHeader('proposals','owner', label, promo.owners||[]);
+              return `<th>${inner}${colResizerHtml('proposals',i)}</th>`;
+            }).join('')}
           </tr>
         </thead>
         <tbody>
@@ -6088,8 +6224,11 @@ function renderPromoProposals(){
   const brandsInUse = brandsInUseFor(promo.proposals);
   const visibleRows = sortByStartDateDesc(promo.proposals, 'periodStart').filter(p=>{
     const pBrands = p.brands && p.brands.length ? p.brands : (p.brand?[p.brand]:[]);
-    if(pBrands.length===0) return true;
-    return pBrands.some(b=>isBrandVisibleIn('proposalFilter', b));
+    if(pBrands.length>0 && !pBrands.some(b=>isBrandVisibleIn('proposalFilter', b))) return false;
+    if(!isColValueVisible('proposals','grade', p.grade||'')) return false;
+    if(!isColValueVisible('proposals','owner', p.owner||'')) return false;
+    if(!isColTextVisible('proposals','promoName', p.promoName||'')) return false;
+    return true;
   });
   return `
     <div class="page-header">
@@ -6352,7 +6491,12 @@ function renderPromoSelected(){
   migrateSelectionsColWidthsOnce();
   const promo = ensurePromotion();
   const brandsInUse = brandsInUseFor(promo.selections);
-  const visibleSelections = sortByStartDateDesc(promo.selections, 'startDate').filter(s=> !s.brand || isBrandVisibleIn('selectionFilter', s.brand));
+  const visibleSelections = sortByStartDateDesc(promo.selections, 'startDate').filter(s=>{
+    if(s.brand && !isBrandVisibleIn('selectionFilter', s.brand)) return false;
+    if(!isColValueVisible('selections','exposureSlot', s.exposureSlot||'')) return false;
+    if(!isColTextVisible('selections','promoName', s.promoName||'')) return false;
+    return true;
+  });
   const visibleIds = visibleSelections.map(s=>s.id);
   const allChecked = visibleIds.length>0 && visibleIds.every(id=>selectedSelectionIds.has(id));
   const checkedCount = visibleIds.filter(id=>selectedSelectionIds.has(id)).length;
@@ -6381,7 +6525,17 @@ function renderPromoSelected(){
         <thead>
           <tr>
             <th style="text-align:center"><input type="checkbox" ${allChecked?'checked':''} onclick='toggleAllSelectionChecks(${JSON.stringify(visibleIds)})' title="전체 선택"></th>
-            ${SELECTIONS_COL_LABELS.map((label,i)=>`<th>${label}${colResizerHtml('selections',i+1)}</th>`).join('')}
+            ${SELECTIONS_COL_LABELS.map((label,i)=>{
+              let inner = label;
+              if(i===2) inner = renderTextColFilterHeader('selections','promoName', label);
+              else if(i===4){
+                const uniqueExposureSlots = Array.from(new Set(promo.selections.map(s=>s.exposureSlot||'')));
+                inner = renderColFilterHeader('selections','exposureSlot', label, uniqueExposureSlots);
+              } else if(i===6){
+                inner = renderBrandColFilterHeader('selectionFilter', label, promo.brands);
+              }
+              return `<th>${inner}${colResizerHtml('selections',i+1)}</th>`;
+            }).join('')}
           </tr>
         </thead>
         <tbody>
