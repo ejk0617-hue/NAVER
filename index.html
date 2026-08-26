@@ -7456,7 +7456,7 @@ function renderLiveSchedule(){
         ${renderColGroup('liveSchedule', LIVE_COL_DEFAULTS)}
         <thead>
           <tr>${['','날짜','요일','시간','라이브ID','브랜드','행사내용',''].map((label,i)=>`<th>${label}${colResizerHtml('liveSchedule',i)}</th>`).join('')}
-            <th style="width:32px;text-align:center"><input type="checkbox" ${allChecked?'checked':''} onclick="toggleAllLiveScheduleChecks(${JSON.stringify(visibleIds)})" title="전체 선택/해제"></th>
+            <th style="width:32px;text-align:center"><input type="checkbox" ${allChecked?'checked':''} onclick='toggleAllLiveScheduleChecks(${JSON.stringify(visibleIds)})' title="전체 선택/해제"></th>
           </tr>
         </thead>
         <tbody>
