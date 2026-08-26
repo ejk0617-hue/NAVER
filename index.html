@@ -6836,7 +6836,7 @@ function updateLiveScheduleField(id, field, value){
   scheduleCalendarSync('live', id);
 }
 
-const LIVE_COL_DEFAULTS = [22,110,64,90,120,130,220,30];
+const LIVE_COL_DEFAULTS = [22,110,64,90,120,130,220,30,32];
 /* =========================================================================
    라이브 현황 — 라이브 매출 데이터를 엑셀로 불러와서, 브랜드별로
    날짜별·요일별·시간별·쇼호스트별 매출 추이를 그래프로 보여준다.
@@ -7060,9 +7060,12 @@ function renderLiveSheetSyncCard(){
         // 구글시트에서 "시간만" 있는 칸(예: 11:00)도 내부적으로는 날짜 객체로 저장되는데(1899-12-30
         // 기준), 이걸 날짜 칸과 똑같이 "yyyy-MM-dd"로 바꾸면 시각 정보가 통째로 날아가 버린다.
         // 그래서 "시간"이 들어간 열 이름은 "HH:mm"으로, 나머지 날짜 열은 "yyyy-MM-dd"로 구분해서 바꾼다.
+        // 주의: 시간만 있는 값은 특정 시간대에 속한 "순간"이 아니라 그냥 "시:분" 그 자체라서,
+        // 스프레드시트 시간대로 변환하면 오히려 시간이 밀린다(예: 11:00이 02:00으로 어긋남).
+        // 그래서 시간 칸은 UTC로 그대로 뽑아야 원래 입력한 시:분과 정확히 일치한다.
         if (v instanceof Date) {
           if (/시간/.test(h)) {
-            v = Utilities.formatDate(v, tz, 'HH:mm');
+            v = Utilities.formatDate(v, 'UTC', 'HH:mm');
           } else {
             v = Utilities.formatDate(v, tz, 'yyyy-MM-dd');
           }
@@ -7404,9 +7407,36 @@ function renderLivePerformance(){
   `;
 }
 
+let selectedLiveScheduleIds = new Set(); // 화면 전용 상태 — 라이브일정 체크박스로 선택된 항목 id들
+function toggleLiveScheduleCheck(id){
+  if(selectedLiveScheduleIds.has(id)) selectedLiveScheduleIds.delete(id);
+  else selectedLiveScheduleIds.add(id);
+  render();
+}
+function toggleAllLiveScheduleChecks(visibleIds){
+  const allChecked = visibleIds.length>0 && visibleIds.every(id=>selectedLiveScheduleIds.has(id));
+  if(allChecked) visibleIds.forEach(id=>selectedLiveScheduleIds.delete(id));
+  else visibleIds.forEach(id=>selectedLiveScheduleIds.add(id));
+  render();
+}
+function deleteSelectedLiveSchedules(){
+  const n = selectedLiveScheduleIds.size;
+  if(n===0){ alert('삭제할 항목을 먼저 체크해주세요.'); return; }
+  if(!confirm(`선택한 ${n}개 항목을 삭제할까요?\n이 작업은 되돌릴 수 없습니다.`)) return;
+  const live = ensureLive();
+  const ids = Array.from(selectedLiveScheduleIds);
+  ids.forEach(id=>recordDeleted('liveSchedule', id));
+  live.schedule = live.schedule.filter(s=>!selectedLiveScheduleIds.has(s.id));
+  selectedLiveScheduleIds.clear();
+  saveState(); render();
+  ids.forEach(id=>pushCalendarEvent('live', id)); // 지워진 항목들의 캘린더 이벤트도 같이 정리
+}
 function renderLiveSchedule(){
   const promo = ensurePromotion();
   const live = ensureLive();
+  const visibleIds = live.schedule.map(s=>s.id);
+  const allChecked = visibleIds.length>0 && visibleIds.every(id=>selectedLiveScheduleIds.has(id));
+  const checkedCount = visibleIds.filter(id=>selectedLiveScheduleIds.has(id)).length;
   return `
     <div class="page-header">
       <div>
@@ -7416,6 +7446,7 @@ function renderLiveSchedule(){
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn ghost" style="color:var(--text-primary)" onclick="navigate('promo_manage')">📥 엑셀로 일괄 등록</button>
+        ${checkedCount>0 ? `<button class="btn ghost" style="color:var(--negative)" onclick="deleteSelectedLiveSchedules()">🗑 선택 삭제 (${checkedCount})</button>` : ''}
         <button class="btn" onclick="addLiveSchedule()">+ 새 라이브 일정 추가</button>
       </div>
     </div>
@@ -7424,10 +7455,12 @@ function renderLiveSchedule(){
       <table class="sheet-table">
         ${renderColGroup('liveSchedule', LIVE_COL_DEFAULTS)}
         <thead>
-          <tr>${['','날짜','요일','시간','라이브ID','브랜드','행사내용',''].map((label,i)=>`<th>${label}${colResizerHtml('liveSchedule',i)}</th>`).join('')}</tr>
+          <tr>${['','날짜','요일','시간','라이브ID','브랜드','행사내용',''].map((label,i)=>`<th>${label}${colResizerHtml('liveSchedule',i)}</th>`).join('')}
+            <th style="width:32px;text-align:center"><input type="checkbox" ${allChecked?'checked':''} onclick="toggleAllLiveScheduleChecks(${JSON.stringify(visibleIds)})" title="전체 선택/해제"></th>
+          </tr>
         </thead>
         <tbody>
-          ${live.schedule.length===0 ? `<tr><td colspan="8"><div class="empty">등록된 라이브 일정이 없습니다. 오른쪽 위 버튼으로 추가해보세요.</div></td></tr>` : live.schedule.map((s,idx)=>{
+          ${live.schedule.length===0 ? `<tr><td colspan="9"><div class="empty">등록된 라이브 일정이 없습니다. 오른쪽 위 버튼으로 추가해보세요.</div></td></tr>` : live.schedule.map((s,idx)=>{
             const brandOptions = promoOptionSet(promo.brands, s.brand);
             const rowClass = idx%2===1 ? 'row-alt' : '';
             return `
@@ -7445,6 +7478,7 @@ function renderLiveSchedule(){
               </td>
               <td><input class="sheet-input" type="text" style="text-align:left" placeholder="행사내용" value="${s.content||''}" onchange="updateLiveScheduleField('${s.id}','content',this.value)"></td>
               <td><button class="btn-del" onclick="deleteLiveSchedule('${s.id}')" title="삭제">✕</button></td>
+              <td style="text-align:center"><input type="checkbox" ${selectedLiveScheduleIds.has(s.id)?'checked':''} onclick="toggleLiveScheduleCheck('${s.id}')"></td>
             </tr>`;
           }).join('')}
         </tbody>
