@@ -6930,7 +6930,6 @@ function runLiveImport(){
   }
   const live = ensureLive();
   let importedCount = 0, skippedCount = 0;
-  const syncedScheduleIds = [];
   liveImportRows.forEach(r=>{
     const brand = liveImportMapping[r.brand];
     if(!brand){ skippedCount++; return; }
@@ -6943,26 +6942,14 @@ function runLiveImport(){
       entry.weekday = r.weekday; entry.time = r.time; entry.host = r.host; entry.content = r.content; entry.sales = r.sales;
     }
     importedCount++;
-
-    // 라이브 일정(및 라이브 캘린더)에도 자동으로 반영한다 — 엑셀/시트에서 매출을 불러오면
-    // 방송 일정을 손으로 다시 입력할 필요 없이 캘린더에 바로 나타난다.
-    // 날짜·시간·브랜드가 같으면 같은 방송으로 보고 갱신한다(호스트가 여러 명이어도 방송 슬롯은 하나).
-    const scheduleKey = `${r.date}_${r.time}_${brand}`;
-    let scheduleEntry = live.schedule.find(s=>s._importKey===scheduleKey);
-    if(!scheduleEntry){
-      scheduleEntry = {id:uid(), _importKey:scheduleKey, date:r.date, time:r.time, liveId:'', brand, content:r.content, sortIndex: nextSortIndex(live.schedule)};
-      live.schedule.unshift(scheduleEntry);
-    }
-    scheduleEntry.content = r.content || scheduleEntry.content;
-    touch(scheduleEntry);
-    syncedScheduleIds.push(scheduleEntry.id);
+    // 라이브 일정 · 라이브 캘린더는 더 이상 여기서 자동으로 안 만든다 — 날짜/시간 값이
+    // 구글시트 쪽 사정으로 계속 어긋나서, 사용자가 라이브 일정은 엑셀로 직접 수기 입력하기로 함.
   });
   saveState();
-  syncedScheduleIds.forEach(id=>scheduleCalendarSync('live', id));
   liveImportModalOpen = false;
   liveImportRows = null;
   render();
-  alert(`${importedCount.toLocaleString('ko-KR')}건을 라이브 현황 · 라이브 일정에 반영했어요.${live.liveCalendarId||live.liveCalendarId2 ? ' 캘린더 연동도 설정되어 있으면 잠시 후 자동 반영돼요.' : ''}${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
+  alert(`${importedCount.toLocaleString('ko-KR')}건을 라이브 현황에 반영했어요.${skippedCount>0 ? `\n(브랜드 매칭이 안 된 ${skippedCount}건은 건너뛰었어요)` : ''}`);
 }
 function updateLivePerfTopProduct(id, idx, field, value){
   const live = ensureLive();
@@ -6982,7 +6969,9 @@ async function fetchFromLiveSheet(btnEl){
   const label = btnEl ? btnEl.textContent : '';
   if(btnEl){ btnEl.textContent = '불러오는 중...'; btnEl.disabled = true; }
   try{
-    const res = await fetch(url, {method:'GET'});
+    // 브라우저가 예전 응답을 캐시해두고 있을 수 있어서, 매번 확실히 서버에 새로 물어보게 강제한다
+    const bustedUrl = url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now();
+    const res = await fetch(bustedUrl, {method:'GET', cache:'no-store'});
     const text = await res.text();
     let parsed = null;
     try{ parsed = JSON.parse(text); }catch(e){}
@@ -7005,7 +6994,7 @@ function renderLiveSheetSyncCard(){
   return `
     <div class="card">
       <h2>🔗 구글 스프레드시트 연동</h2>
-      <div class="helptext" style="margin-top:0">라이브 매출 구글시트에서 직접 데이터를 가져와요. 먼저 구글 시트 쪽에서 "받는 창구"(앱스스크립트 웹앱)를 한 번 만들어두셔야 해요 — 아래 "연동 설정 방법 보기"를 펼치면 순서대로 안내해드려요.</div>
+      <div class="helptext" style="margin-top:0">라이브 매출 구글시트에서 직접 데이터를 가져와서 <b>라이브 현황(이 페이지)에만</b> 반영해요. 라이브 일정 · 라이브 캘린더는 자동으로 안 바뀌니, 그건 라이브 일정 메뉴에서 직접 등록해주세요. 먼저 구글 시트 쪽에서 "받는 창구"(앱스스크립트 웹앱)를 한 번 만들어두셔야 해요 — 아래 "연동 설정 방법 보기"를 펼치면 순서대로 안내해드려요.</div>
       <label style="display:block;font-size:11.5px;font-weight:700;color:var(--text-secondary);margin:10px 0 4px">웹앱 주소</label>
       <input type="text" class="row-input ssc-left" style="border:1px solid var(--border);border-radius:8px;padding:8px 10px" placeholder="https://script.google.com/macros/s/.../exec" value="${live.liveSalesSheetUrl||''}" onchange="updateLiveSalesSheetUrl(this.value)">
       <div style="display:flex;gap:8px;margin-top:10px">
