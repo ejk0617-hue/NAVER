@@ -4058,7 +4058,7 @@ function importSelectionsFromRows(rows, position, batchId){
     if(!entry){
       entry = {
         id: uid(), importBatchId: batchId, startDate, endDate, promoName,
-        exposureSlot: excelRowVal(row,'노출구좌'), exposureDate: excelToDateStr(excelRawVal(row,'노출일')),
+        exposureSlot: excelRowVal(row,'노출구좌'), exposureDate: excelRowVal(row,'노출일'),
         brand, products: [],
       };
       groups.set(key, entry);
@@ -6631,7 +6631,7 @@ function renderPromoSelected(){
                 <td ${csSpan(1)} rowspan="${n}"><input class="sheet-input" type="date" onpaste="handleDatePaste(event)" value="${s.endDate||''}" onchange="updateSelectionField('${s.id}','endDate',this.value)"></td>
                 <td ${csSpan(2)} rowspan="${n}"><input class="sheet-input" type="text" style="text-align:left" value="${s.promoName||''}" placeholder="프로모션명" onchange="updateSelectionField('${s.id}','promoName',this.value)"></td>
                 <td ${csSpan(3)} rowspan="${n}"><input class="sheet-input" type="text" style="text-align:left" value="${s.exposureSlot||''}" placeholder="노출구좌" onchange="updateSelectionField('${s.id}','exposureSlot',this.value)"></td>
-                <td ${csSpan(4)} rowspan="${n}"><input class="sheet-input" type="date" onpaste="handleDatePaste(event)" value="${s.exposureDate||''}" onchange="updateSelectionField('${s.id}','exposureDate',this.value)"></td>
+                <td ${csSpan(4)} rowspan="${n}"><input class="sheet-input" type="text" style="text-align:left" placeholder="예) 8/5, 8/12, 8/19" value="${s.exposureDate||''}" onchange="updateSelectionField('${s.id}','exposureDate',this.value)"></td>
                 <td ${csSpan(5)} rowspan="${n}">
                   <select class="sheet-input" onchange="updateSelectionField('${s.id}','brand',this.value)">
                     <option value="">선택</option>
