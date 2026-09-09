@@ -4944,10 +4944,13 @@ function renderPromoStats(){
           selCounts[b][grade]++;
         });
       }
-      selectedList.push({p, sel, grade});
+      // 같은 행사라도 브랜드별로 행사매출이 따로 잡히니, 화면에도 브랜드마다 한 줄씩 분리해서 보여준다
+      sel.forEach(b=>{
+        selectedList.push({p, brand: b, grade});
+      });
     }
   });
-  selectedList.sort((a,b)=> (a.p.periodStart||'').localeCompare(b.p.periodStart||''));
+  selectedList.sort((a,b)=> (a.p.periodStart||'').localeCompare(b.p.periodStart||'') || a.brand.localeCompare(b.brand));
   proposedList.sort((a,b)=> (a.p.periodStart||'').localeCompare(b.p.periodStart||''));
 
   // 브랜드 목록: 필터에 켜진 브랜드 + 혹시 필터목록엔 없는데 데이터엔 있는 브랜드까지 다 포함
@@ -5084,18 +5087,16 @@ function renderPromoStats(){
               </tr>
             </thead>
             <tbody>
-              ${selectedList.map(({p, sel, grade}, i)=>{
-                const eventSalesSum = sel.reduce((sum,b)=>{
-                  const c = promo.checklist.find(ci=>ci.sourceProposalId===p.id && ci.brand===b);
-                  return sum + (c && c.eventSales ? Number(c.eventSales)||0 : 0);
-                }, 0);
+              ${selectedList.map(({p, brand, grade}, i)=>{
+                const c = promo.checklist.find(ci=>ci.sourceProposalId===p.id && ci.brand===brand);
+                const eventSales = c && c.eventSales ? Number(c.eventSales)||0 : 0;
                 return `
                 <tr class="${i%2===1?'row-alt':''}">
                   <td style="font-weight:600">${p.promoName||'(제목 없음)'}</td>
-                  <td>${sel.map(b=>`<span style="display:inline-flex;align-items:center;gap:4px;margin-right:8px"><span style="width:6px;height:6px;border-radius:50%;background:${promoBrandColor(b)};display:inline-block"></span>${b}</span>`).join('')}</td>
+                  <td><span style="display:inline-flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:${promoBrandColor(brand)};display:inline-block"></span>${brand}</span></td>
                   <td style="text-align:center">${grade ? `<span class="badge" style="${gradeStyle(grade)}">${grade}</span>` : '-'}</td>
                   <td class="mono" style="font-size:12.5px;color:var(--text-secondary)">${p.periodStart||'-'} ~ ${p.periodEnd||'-'}</td>
-                  <td class="num mono" style="font-weight:700;${eventSalesSum>0?'':'color:var(--text-secondary)'}">${eventSalesSum>0?formatWon(eventSalesSum):'-'}</td>
+                  <td class="num mono" style="font-weight:700;${eventSales>0?'':'color:var(--text-secondary)'}">${eventSales>0?formatWon(eventSales):'-'}</td>
                 </tr>`;
               }).join('')}
             </tbody>
