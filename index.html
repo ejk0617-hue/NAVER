@@ -3852,6 +3852,29 @@ function ensurePromotion(){
       c.bannerSetting = legacy.length ? legacy[0] : '';
     }
   });
+  // 선정리스트를 수기로 등록한 항목(제안리스트의 "선정완료" 체크로 자동 생성된 게 아닌 것)도,
+  // 브랜드·프로모션명이 채워져 있으면 셋팅 메뉴에 자동으로 항목을 만들어준다.
+  // (제안에서 자동 생성된 항목은 addChecklistFromProposalBrand()가 이미 처리하므로 여기서는 건드리지 않는다)
+  // 값(이름·기간)이 아니라 sourceSelectionId로 연결해야, 나중에 그 값을 고쳐도 중복이 안 생긴다.
+  state.promotion.selections.forEach(s=>{
+    if(s.sourceProposalId) return;
+    if(!s.brand || !s.promoName) return;
+    const linked = state.promotion.checklist.find(c=>c.sourceSelectionId===s.id);
+    if(linked){
+      // 이미 연결되어 있으면, 선정리스트 쪽에서 바뀐 이름·브랜드·기간을 계속 따라가게 한다
+      if(linked.promoName!==s.promoName || linked.brand!==s.brand || linked.startDate!==(s.startDate||'') || linked.endDate!==(s.endDate||'')){
+        linked.promoName = s.promoName; linked.brand = s.brand;
+        linked.startDate = s.startDate||''; linked.endDate = s.endDate||'';
+      }
+      return;
+    }
+    state.promotion.checklist.unshift(touch(newChecklistEntry({
+      promoName: s.promoName, brand: s.brand,
+      startDate: s.startDate||'', endDate: s.endDate||'',
+      sourceSelectionId: s.id,
+      sortIndex: nextSortIndex(state.promotion.checklist),
+    })));
+  });
   return state.promotion;
 }
 /* ---- 브랜드별 스토어 링크 / 상품 링크 접두사 관리 ---- */
@@ -4617,7 +4640,7 @@ const CHECKLIST_STATUS_FIELDS = [
 function newChecklistEntry(overrides){
   const base = {
     id: uid(), promoName:'', brand:'', owner:'', deadline:'',
-    exposureDate:'', capture:false, sourceProposalId:null,
+    exposureDate:'', capture:false, sourceProposalId:null, sourceSelectionId:null,
     startDate:'', endDate:'', // 셋팅도우미에서 선정리스트와 정확히 매칭할 때 씀
   };
   CHECKLIST_STATUS_FIELDS.forEach(f=>{ base[f.key]=''; });
@@ -5929,13 +5952,18 @@ let selectionSheetSyncTimers = {};
 function findChecklistForSelection(s){
   const promo = ensurePromotion();
   if(!s) return null;
-  return promo.checklist.find(c=>{
-    if(s.sourceProposalId){
-      return c.sourceProposalId===s.sourceProposalId && (c.brand||'')===(s.brand||'');
-    }
-    return (c.promoName||'')===(s.promoName||'') && (c.brand||'')===(s.brand||'') &&
-           (c.startDate||'')===(s.startDate||'') && (c.endDate||'')===(s.endDate||'');
-  });
+  if(s.sourceProposalId){
+    return promo.checklist.find(c=>c.sourceProposalId===s.sourceProposalId && (c.brand||'')===(s.brand||''));
+  }
+  // 수기 등록 항목은 안정적인 id로 먼저 찾아보고(자동연동으로 만들어진 경우), 없으면
+  // 예전 방식(값 일치)으로도 한 번 더 찾아본다 — 이 기능 생기기 전에 셋팅에서 직접 만든 항목 대비.
+  const bySourceId = promo.checklist.find(c=>c.sourceSelectionId===s.id);
+  if(bySourceId) return bySourceId;
+  return promo.checklist.find(c=>
+    !c.sourceProposalId && !c.sourceSelectionId &&
+    (c.promoName||'')===(s.promoName||'') && (c.brand||'')===(s.brand||'') &&
+    (c.startDate||'')===(s.startDate||'') && (c.endDate||'')===(s.endDate||'')
+  );
 }
 function resyncSalesForChecklistEntry(checklistId){
   const promo = ensurePromotion();
