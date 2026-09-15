@@ -1631,6 +1631,12 @@ function render(){
       textInput.setSelectionRange(len, len);
     }
   }
+  // 셋팅 드롭다운에서 Ctrl+V로 붙여넣으면 다시 그려지면서 포커스가 풀리니, 같은 칸으로 되돌려준다
+  // (그래야 붙여넣기 → 아래 화살표 → 붙여넣기 를 손 안 떼고 연속으로 할 수 있다)
+  if(lastFocusedSelectKey){
+    const el = document.querySelector(`select.kb-copy-select[data-kb-id="${lastFocusedSelectKey.id}"][data-kb-field="${lastFocusedSelectKey.field}"]`);
+    if(el) el.focus();
+  }
 
   // 스크롤 위치 복원
   const mainElAfter = document.getElementById('main');
@@ -4704,6 +4710,36 @@ function deleteChecklistEntry(id){
   recordDeleted('checklist', id);
   saveState(); render();
 }
+/* 셋팅 표의 드롭다운(브랜드·담당자·진행상태)을 마우스 없이 키보드로만 다루고 싶을 때:
+   - 칸을 클릭(포커스)한 뒤 Ctrl+C로 값 복사
+   - 같은 종류의 다른 칸에서 Ctrl+V로 붙여넣기 (다른 종류 칸엔 안 붙음 — 예: 브랜드값이 담당자칸에 안 들어감)
+   - ↑/↓ 화살표로 같은 열의 위/아래 칸으로 바로 이동 (복사 → 아래로 → 붙여넣기 → 아래로 → ... 반복하기 편하게) */
+let selectCellClipboard = null; // {field, value}
+let lastFocusedSelectKey = null; // {id, field} — 다시 그려진 뒤에도 포커스를 그 자리로 복원하기 위함
+function handleSelectCellKeydown(e, id, field){
+  const key = (e.key||'').toLowerCase();
+  if((e.ctrlKey||e.metaKey) && key==='c'){
+    e.preventDefault();
+    selectCellClipboard = {field, value: e.target.value};
+    return;
+  }
+  if((e.ctrlKey||e.metaKey) && key==='v'){
+    if(selectCellClipboard && selectCellClipboard.field===field){
+      e.preventDefault();
+      e.target.value = selectCellClipboard.value;
+      e.target.dispatchEvent(new Event('change', {bubbles:true})); // 실제 값 저장을 위해 change를 명시적으로 발생시킴
+    }
+    return;
+  }
+  if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+    e.preventDefault();
+    const all = Array.from(document.querySelectorAll(`select.kb-copy-select[data-kb-field="${field}"]`));
+    const idx = all.indexOf(e.target);
+    if(idx===-1) return;
+    const nextEl = all[e.key==='ArrowDown' ? idx+1 : idx-1];
+    if(nextEl) nextEl.focus();
+  }
+}
 function updateChecklistField(id, field, value){
   const promo = ensurePromotion();
   const row = promo.checklist.find(c=>c.id===id);
@@ -4901,13 +4937,13 @@ function renderPromoSettings(){
                 </div>
               </td>
               <td>
-                <select class="sheet-input" onchange="updateChecklistField('${c.id}','brand',this.value)">
+                <select class="sheet-input kb-copy-select" data-kb-id="${c.id}" data-kb-field="brand" onkeydown="handleSelectCellKeydown(event,'${c.id}','brand')" onfocus="lastFocusedSelectKey={id:'${c.id}',field:'brand'}" onchange="updateChecklistField('${c.id}','brand',this.value)">
                   <option value="">선택</option>
                   ${brandOptions.map(b=>`<option value="${b}" ${b===c.brand?'selected':''}>${b}</option>`).join('')}
                 </select>
               </td>
               <td>
-                <select class="sheet-input" onchange="updateChecklistField('${c.id}','owner',this.value)">
+                <select class="sheet-input kb-copy-select" data-kb-id="${c.id}" data-kb-field="owner" onkeydown="handleSelectCellKeydown(event,'${c.id}','owner')" onfocus="lastFocusedSelectKey={id:'${c.id}',field:'owner'}" onchange="updateChecklistField('${c.id}','owner',this.value)">
                   <option value="">선택</option>
                   ${ownerOptions.map(o=>`<option value="${o}" ${o===c.owner?'selected':''}>${o}</option>`).join('')}
                 </select>
@@ -4915,7 +4951,7 @@ function renderPromoSettings(){
               <td><input class="sheet-input" type="date" onpaste="handleDatePaste(event)" value="${c.deadline||''}" onchange="updateChecklistField('${c.id}','deadline',this.value)"></td>
               ${CHECKLIST_STATUS_FIELDS.map(f=>`
               <td>
-                <select class="sheet-input" style="${checklistStatusStyle(c[f.key])}" onchange="updateChecklistField('${c.id}','${f.key}',this.value)">
+                <select class="sheet-input kb-copy-select" data-kb-id="${c.id}" data-kb-field="${f.key}" onkeydown="handleSelectCellKeydown(event,'${c.id}','${f.key}')" onfocus="lastFocusedSelectKey={id:'${c.id}',field:'${f.key}'}" style="${checklistStatusStyle(c[f.key])}" onchange="updateChecklistField('${c.id}','${f.key}',this.value)">
                   <option value="">-</option>
                   ${CHECKLIST_STATUS_OPTIONS.map(o=>`<option value="${o}" ${o===c[f.key]?'selected':''}>${o}</option>`).join('')}
                 </select>
