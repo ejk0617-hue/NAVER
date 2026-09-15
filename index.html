@@ -1566,11 +1566,6 @@ function render(){
   }
   const main = document.getElementById('main');
   try{
-    syncManualSelectionsToChecklist();
-  }catch(syncErr){
-    console.error('수기 선정항목 → 셋팅 자동연동 오류:', syncErr);
-  }
-  try{
     switch(currentSection){
       case 'dashboard': main.innerHTML = renderDashboard(); break;
       case 'shogeom': main.innerHTML = renderShogeomOrGfa('shogeom'); break;
@@ -3857,6 +3852,15 @@ function ensurePromotion(){
       c.bannerSetting = legacy.length ? legacy[0] : '';
     }
   });
+  // "선정리스트 수기 등록 → 셋팅 자동생성" 기능이 생기기 전부터 있던 선정 항목들은,
+  // 앞으로 다시 손대도 자동으로 셋팅 항목이 새로 생기지 않도록 "이미 처리됨"으로 한 번만 표시해둔다.
+  // (딱 한 번만 실행 — 그래야 이후에 새로 추가하는 항목은 정상적으로 자동연동 대상이 됨)
+  if(!state.promotion._legacySelectionsMarked){
+    state.promotion.selections.forEach(s=>{
+      if(s.checklistSynced===undefined) s.checklistSynced = true;
+    });
+    state.promotion._legacySelectionsMarked = true;
+  }
   return state.promotion;
 }
 /* ---- 브랜드별 스토어 링크 / 상품 링크 접두사 관리 ---- */
@@ -4637,26 +4641,28 @@ function newChecklistEntry(overrides){
    주의: ensurePromotion() 안에 두면 페이지 맨 처음 로딩 시점(CHECKLIST_STATUS_FIELDS 등 아래쪽에
    정의된 값들이 아직 준비되기 전)에 실행되어 앱이 통째로 멈추는 문제가 있어서, render()에서만
    안전하게 호출한다. */
-function syncManualSelectionsToChecklist(){
+/* 선정리스트를 수기로 등록한 항목(제안리스트의 "선정완료" 체크로 자동 생성된 게 아닌 것)이,
+   브랜드·프로모션명을 처음으로 다 채우는 그 순간에 딱 한 번만 셋팅 항목을 만들어준다.
+   (제안에서 자동 생성된 항목은 addChecklistFromProposalBrand()가 처리)
+   주의: 예전엔 render()마다 전체 선정리스트를 훑으면서 계속 다시 만들었는데, 그러면
+   (1) 이 기능 생기기 전부터 있던 기존 항목까지 전부 끌려와버리고, (2) 사용자가 만들어진 셋팅
+   항목을 지워도 다음 렌더링에서 또 생겨버리는 문제가 있었다. 그래서 이제는 "이 선정 항목에
+   대해 한 번이라도 시도했다"는 표시(checklistSynced)를 남겨서, 그 뒤로는(삭제됐든 아니든)
+   두 번 다시 자동으로 손대지 않는다 — 딱 새로 채워 넣는 시점 1회성 트리거로만 동작한다. */
+function maybeSyncManualSelectionToChecklist(selectionId){
   const promo = ensurePromotion();
-  promo.selections.forEach(s=>{
-    if(s.sourceProposalId) return;
-    if(!s.brand || !s.promoName) return;
-    const linked = promo.checklist.find(c=>c.sourceSelectionId===s.id);
-    if(linked){
-      if(linked.promoName!==s.promoName || linked.brand!==s.brand || linked.startDate!==(s.startDate||'') || linked.endDate!==(s.endDate||'')){
-        linked.promoName = s.promoName; linked.brand = s.brand;
-        linked.startDate = s.startDate||''; linked.endDate = s.endDate||'';
-      }
-      return;
-    }
-    promo.checklist.unshift(touch(newChecklistEntry({
-      promoName: s.promoName, brand: s.brand,
-      startDate: s.startDate||'', endDate: s.endDate||'',
-      sourceSelectionId: s.id,
-      sortIndex: nextSortIndex(promo.checklist),
-    })));
-  });
+  const s = promo.selections.find(x=>x.id===selectionId);
+  if(!s || s.sourceProposalId || s.checklistSynced) return;
+  if(!s.brand || !s.promoName) return;
+  s.checklistSynced = true; // 성공하든 이미 있든, 이 항목은 다시는 자동으로 건드리지 않는다
+  const exists = promo.checklist.some(c=>c.sourceSelectionId===s.id);
+  if(exists) return;
+  promo.checklist.unshift(touch(newChecklistEntry({
+    promoName: s.promoName, brand: s.brand,
+    startDate: s.startDate||'', endDate: s.endDate||'',
+    sourceSelectionId: s.id,
+    sortIndex: nextSortIndex(promo.checklist),
+  })));
 }
 function addChecklistFromProposalBrand(proposal, brand){
   const promo = ensurePromotion();
@@ -6382,6 +6388,7 @@ function updateSelectionField(id, field, value){
   if(!row) return;
   row[field] = value;
   touch(row);
+  if(field==='brand' || field==='promoName') maybeSyncManualSelectionToChecklist(id);
   saveState(); render();
   scheduleSelectionSheetSync(id);
   // 노출일은 선정캘린더 이벤트 제목에도 괄호로 같이 표시되니까, 그 캘린더 이벤트도 다시 동기화한다
