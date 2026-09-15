@@ -6363,6 +6363,93 @@ function calcDiscountRate(regPrice, finalPrice){
   if(!reg || reg<=0 || finalPrice===''||finalPrice===null||finalPrice===undefined) return null;
   return Math.floor((1 - fin/reg) * 100); // ROUNDDOWN((1-최종혜택가/등록가)*100,0)/100 과 동일한 정수 % 값
 }
+/* ---- 선정 항목 추가 팝업: 시작일을 미리 입력받아서, 등록하는 순간 바로 올바른(최신순) 자리에
+   들어가게 한다. 제안리스트 팝업과 같은 이유 — 빈 채로 만들면 날짜 없어서 맨 아래 갔다가,
+   나중에 날짜 채우면 그제서야 자리를 찾아가서 화면이 갑자기 움직이는 게 불편했다. */
+let selectionAddModalOpen = false;
+let selectionAddDraft = null;
+function newSelectionDraft(){
+  return { startDate:'', endDate:'', promoName:'', exposureSlot:'', exposureDate:'', brand:'' };
+}
+function openSelectionAddModal(){
+  selectionAddModalOpen = true;
+  selectionAddDraft = newSelectionDraft();
+  render();
+}
+function closeSelectionAddModal(){
+  selectionAddModalOpen = false;
+  selectionAddDraft = null;
+  render();
+}
+function updateSelectionDraftField(field, value){
+  if(!selectionAddDraft) return;
+  selectionAddDraft[field] = value;
+}
+function submitSelectionAdd(){
+  if(!selectionAddDraft) return;
+  const promo = ensurePromotion();
+  const newId = uid();
+  const d = selectionAddDraft;
+  promo.selections.unshift(touch({
+    id: newId,
+    startDate: d.startDate||'', endDate: d.endDate||'', promoName: d.promoName||'',
+    exposureSlot: d.exposureSlot||'', exposureDate: d.exposureDate||'', brand: d.brand||'',
+    products: [{id:uid(), code:'', name:'', regPrice:'', instantDiscountPrice:'', finalBenefitPrice:''}],
+    sortIndex: nextSortIndex(promo.selections),
+  }));
+  // 팝업에서 브랜드+프로모션명을 한 번에 채워 넣었을 수 있으니, 그 자리에서 바로 셋팅 연동도 확인한다
+  if(d.brand && d.promoName) maybeSyncManualSelectionToChecklist(newId);
+  selectionAddModalOpen = false;
+  selectionAddDraft = null;
+  saveState(); render();
+  scheduleSelectionSheetSync(newId);
+}
+function renderSelectionAddModal(){
+  if(!selectionAddModalOpen || !selectionAddDraft) return '';
+  const promo = ensurePromotion();
+  const d = selectionAddDraft;
+  return `
+    <div class="modal-overlay" onclick="closeSelectionAddModal()">
+      <div class="modal-panel" onclick="event.stopPropagation()" style="max-width:520px">
+        <button class="modal-close" onclick="closeSelectionAddModal()" title="닫기">✕</button>
+        <div class="modal-title">📝 새 선정 항목 추가</div>
+        <div class="modal-sub">시작일을 먼저 넣으면, 등록하자마자 최신순 자리에 바로 들어가요.</div>
+
+        <div class="proposal-add-form">
+          <div class="field">
+            <label>시작일</label>
+            <input type="date" class="row-input ssc-left" value="${d.startDate||''}" onchange="updateSelectionDraftField('startDate', this.value)">
+          </div>
+          <div class="field">
+            <label>종료일</label>
+            <input type="date" class="row-input ssc-left" value="${d.endDate||''}" onchange="updateSelectionDraftField('endDate', this.value)">
+          </div>
+          <div class="field">
+            <label>브랜드</label>
+            <select class="row-input ssc-left" onchange="updateSelectionDraftField('brand', this.value)">
+              <option value="">선택</option>
+              ${promo.brands.map(b=>`<option value="${b}" ${b===d.brand?'selected':''}>${b}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <label>노출구좌</label>
+            <input type="text" class="row-input ssc-left" placeholder="예) 메인, 서브" value="${d.exposureSlot||''}" onchange="updateSelectionDraftField('exposureSlot', this.value)">
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <label>프로모션명</label>
+            <input type="text" class="row-input ssc-left" placeholder="프로모션명" value="${d.promoName||''}" onchange="updateSelectionDraftField('promoName', this.value)">
+          </div>
+          <div class="field" style="grid-column:1/-1">
+            <label>노출일</label>
+            <input type="text" class="row-input ssc-left" placeholder="예) 8/5, 8/12, 8/19" value="${d.exposureDate||''}" onchange="updateSelectionDraftField('exposureDate', this.value)">
+          </div>
+        </div>
+
+        <button class="btn" style="width:100%;margin-top:18px" onclick="submitSelectionAdd()">✅ 등록</button>
+      </div>
+    </div>
+  `;
+}
 function addSelectionEntry(){
   const promo = ensurePromotion();
   const newId = uid();
@@ -6625,7 +6712,7 @@ function renderPromoSelected(){
       <div style="display:flex;gap:8px">
         <button class="btn ghost" style="color:var(--text-primary)" onclick="navigate('promo_manage')">⚙ 브랜드 관리</button>
         ${checkedCount>0 ? `<button class="btn ghost" style="color:var(--negative)" onclick="deleteSelectedSelections()">🗑 선택 삭제 (${checkedCount})</button>` : ''}
-        <button class="btn" onclick="addSelectionEntry()">+ 새 선정 항목 추가</button>
+        <button class="btn" onclick="openSelectionAddModal()">+ 새 선정 항목 추가</button>
       </div>
     </div>
     ${renderBrandFilterBar('selectionFilter', brandsInUse)}
@@ -6705,6 +6792,7 @@ function renderPromoSelected(){
       </table>
     </div>
     <div class="helptext">할인율은 <span class="mono">ROUNDDOWN((1-최종혜택가/등록가)×100, 0)</span> 공식으로 자동 계산됩니다. 상품코드 옆 ➕ 버튼으로 상품을 추가하거나, <b>엑셀·구글시트에서 상품코드~최종혜택가 범위를 복사해서 상품코드 칸에 그대로 붙여넣으면</b> 여러 행이 한 번에 채워집니다. 등록가·즉시할인가·최종혜택가는 항상 <span class="mono">1,000원</span> 형식으로 표시돼요. <b>표의 어느 칸이든 마우스로 드래그해서 영역을 선택한 뒤 Ctrl+C(맥은 Cmd+C)로 한 번에 복사</b>해서 엑셀에 붙여넣을 수 있어요. 왼쪽 체크박스로 여러 항목을 골라 한 번에 삭제할 수 있어요. 열 머리글 오른쪽 끝을 드래그하면 너비를 조절할 수 있어요.</div>
+    ${renderSelectionAddModal()}
   `;
 }
 
