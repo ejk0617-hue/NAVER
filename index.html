@@ -2676,7 +2676,7 @@ function renderGuideModal(){
 
           <div class="guide-h2" style="color:#F7B266">📦 풀필먼트 카테고리</div>
           <ul class="guide-ul">
-            <li><b style="color:#F7B266">입고량 계산</b> 현재고 · 평균출고량 · 기준일을 넣으면 필요한 입고 수량이 자동 계산돼요. CJ 재고 엑셀을 올리면 현재고 · 평균출고량이 자동으로 채워져요.</li>
+            <li><b style="color:#F7B266">입고량 계산</b> 현재고 · 평균출고량 · 기준일을 넣으면 필요한 입고 수량이 자동 계산돼요. 재고 불러오기를 누르면 현재고 · 평균출고량(1일 평균)이 자동으로 채워지고, 출고 가능 일수가 7일 미만인 브랜드는 품절 임박으로 표시돼요.</li>
             <li><b style="color:#F7B266">품목 데이터</b> 상품코드 · 바코드 · 입수량 등 기본 정보를 관리해요.</li>
           </ul>
 
@@ -3532,7 +3532,9 @@ async function syncFulfillmentStock(){
       if(x && x.in_cl){ avail = Math.round(Number(x.avail)||0); out7 = Math.round((Number(x.daily_out)||0)*7); }
       else if(x && x.name){ avail = 0; out7 = Math.round((Number(x.daily_out)||0)*7); }
       if(avail==='') none++; else hit++;
-      it.stockAvail = avail; it.out7 = out7; touch(it);
+      it.stockAvail = avail; it.out7 = out7;
+      if(avail!==''){ it.currentStock = String(avail); it.avgOutbound = String(Math.round((Number(x && x.daily_out)||0)*10)/10); }
+      touch(it);
     });
     // N배송 재고: 바코드로 매칭 (서버 stock_share.php 에 view=nship 가 있어야 함)
     let nHit = 0, nErr = '';
@@ -3794,6 +3796,29 @@ async function importCjStockExcel(){
   }
 }
 
+/* 품절 임박 브랜드: 현재고 ÷ 평균출고량(1일)으로 계산한 출고 가능 일수가 7일 미만인 품목(사용 중)이 하나라도 있는 브랜드 */
+function renderFulfillmentSoldoutBar(){
+  const f = ensureFulfillment();
+  const map = {};
+  f.items.forEach(it=>{
+    if(it.active===false || !it.brand) return;
+    const avg = Number(it.avgOutbound), cur = Number(it.currentStock);
+    if(!(avg>0) || it.currentStock===''|| it.currentStock===undefined || isNaN(cur)) return;
+    const days = Math.max(0,cur)/avg;
+    if(days<7) (map[it.brand] = map[it.brand]||[]).push({name:it.itemName||it.itemCode||'-', days});
+  });
+  const brands = fulfillmentBrandList().filter(b=>map[b]);
+  const esc = v=>String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  return `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:7px 10px;margin:-6px 0 16px;padding:9px 12px;background:#fff;border:1px solid ${brands.length?'#F3C6C6':'var(--border)'};border-radius:10px">
+      <span style="font-size:11px;font-weight:700;color:${brands.length?'#C62828':'var(--text-secondary)'};flex-shrink:0">🚨 품절 임박 브랜드 <span style="font-weight:400">(출고 가능 7일 미만)</span></span>
+      ${brands.length===0 ? `<span style="font-size:12.5px;color:var(--text-secondary)">없음</span>` : brands.map(b=>{
+        const list = map[b].sort((x,y)=>x.days-y.days);
+        const tip = list.map(x=>`${x.name}: ${x.days.toFixed(1)}일`).join('\n');
+        return `<span title="${esc(tip)}" style="background:#FDECEC;color:#C62828;border:1px solid #F3C6C6;border-radius:12px;padding:2px 10px;font-size:12.5px;font-weight:700">${esc(b)} <span style="font-weight:500">${list.length}개 · 최소 ${list[0].days.toFixed(1)}일</span></span>`;
+      }).join('')}
+    </div>`;
+}
 function renderFulfillmentInboundCalc(){
   const f = ensureFulfillment();
   const visibleItems = f.items.filter(it=> !it.brand || isFulfillmentBrandVisible(it.brand));
@@ -3832,6 +3857,7 @@ function renderFulfillmentInboundCalc(){
     </div>
 
     ${renderFulfillmentBrandFilterBar()}
+    ${renderFulfillmentSoldoutBar()}
 
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
@@ -3844,23 +3870,20 @@ function renderFulfillmentInboundCalc(){
           <button class="btn" onclick="applyBaseDateToAllVisible()">전체 적용</button>
         </div>
       </div>
-      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
-        <div class="field"><label style="display:block;font-size:11px;color:var(--text-secondary);font-weight:600;margin-bottom:4px">CJ 재고현황 엑셀 (현재고·평균출고량 자동 채우기)</label>
-          <input type="file" id="cjStockFile" accept=".xlsx,.xls" style="font-size:12.5px">
-        </div>
-        <button class="btn ghost" style="color:var(--text-primary)" onclick="importCjStockExcel()">📥 불러오기</button>
-        <div id="cjStockResult" style="width:100%"></div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+        <button class="btn ghost" id="stockSyncBtn" style="color:var(--text-primary)" onclick="syncFulfillmentStock()">📦 재고 불러오기</button>
+        <span class="helptext" style="margin:0">현재고(CL 재고)와 평균출고량(1일 평균, 최근 14일)이 자동으로 채워져요. 값은 직접 고쳐도 되고, 다시 불러오면 새 값으로 바뀌어요.</span>
       </div>
-      <div class="helptext" style="margin-top:8px">CJ "통합재고조회_상품별" 엑셀을 그대로 올리면, <b>품목코드가 일치하는 품목</b>의 현재고(가용수량)와 평균출고량을 자동으로 채워줘요. 새 품목은 만들지 않으니, 먼저 품목 데이터에 품목코드를 등록해두셔야 해요.</div>
+      ${f.stockMsg ? `<div class="card" style="background:#EEF4FB;border-color:#C9DBF0;padding:8px 14px;font-size:12.5px;margin:8px 0 0">📦 ${f.stockMsg}<button class="copy-btn" style="float:right" onclick="ensureFulfillment().stockMsg='';saveState();render()">닫기</button></div>` : ''}
       ${rows.length===0 ? `<div class="empty">${f.items.length===0 ? '등록된 품목이 없습니다. 품목 데이터 메뉴에서 먼저 추가해주세요.' : '필터 조건에 맞는 품목이 없습니다.'}</div>` : `
       <table id="fulfillInboundTable" style="table-layout:fixed;width:100%">
         <colgroup>
           <col style="width:100px"><col style="width:84px"><col style="width:110px"><col><col style="width:60px">
-          <col style="width:80px"><col style="width:86px"><col style="width:64px"><col style="width:96px"><col style="width:80px">
+          <col style="width:80px"><col style="width:104px"><col style="width:64px"><col style="width:96px"><col style="width:80px">
         </colgroup>
         <thead><tr>
           <th>브랜드</th><th>상품코드</th><th>상품바코드</th><th>상품명</th><th class="num">입수량</th>
-          <th class="num">현재고</th><th class="num">평균출고량</th><th class="num">기준일</th><th class="num">입고수량(EA)</th><th class="num">입고수(BOX)</th>
+          <th class="num">현재고</th><th class="num" title="1일 평균 출고량">평균출고량(일)</th><th class="num">기준일</th><th class="num">입고수량(EA)</th><th class="num">입고수(BOX)</th>
         </tr></thead>
         <tbody>
           ${rows.map(({it,ea,box})=>`
