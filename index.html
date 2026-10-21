@@ -3451,10 +3451,99 @@ function updateFulfillmentLogisticsField(brand, field, val){
   rec[field] = val;
   saveState(); render();
 }
+
+/* ---- 구글시트(CJ·롯데·품고 품목 마스터) 기준 일괄 갱신 — 최초 1회만 실행 ----
+   현재고·최근 7일 판매량은 제외하고, 품목 기본정보 + 사용 여부 + 브랜드별 입출고 정보(값이 있는 것만)를 반영한다.
+   품목코드(없으면 바코드)가 같은 기존 품목은 갱신하고, 시트에만 있는 품목은 새로 추가한다. 시트에 없는 기존 품목은 지우지 않는다. */
+const FULFILL_SHEET_V1 = {"items":[{"brand":"VSL","itemCode":"119779","itemName":"VSL 키즈","itemBarcode":"8809597930019","packQty":"36","pltBoxQty":"","active":true,"clCode":"VVSL02030002"},{"brand":"VSL","itemCode":"130648","itemName":"VSL 밸런스","itemBarcode":"8809597930118","packQty":"24","pltBoxQty":"","active":true,"clCode":"VVSL02030003"},{"brand":"VSL","itemCode":"119778","itemName":"VSL 4500","itemBarcode":"8809597930040","packQty":"36","pltBoxQty":"","active":true,"clCode":"VVSL02030001"},{"brand":"VSL","itemCode":"231208","itemName":"VSL#3 보냉백","itemBarcode":"8809597930217","packQty":"100","pltBoxQty":"","active":true,"clCode":"VVSL02030005"},{"brand":"VSL","itemCode":"VVSL02030010","itemName":"VSL#3 오+밸 선물세트","itemBarcode":"8809597930248","packQty":"34","pltBoxQty":"","active":true,"clCode":"VVSL02030010"},{"brand":"VSL","itemCode":"VVSL02030007","itemName":"VSL#3 밸런스 선물세트","itemBarcode":"8809597930224","packQty":"38","pltBoxQty":"","active":true,"clCode":"VVSL02030007"},{"brand":"VSL","itemCode":"VVSL02030009","itemName":"VSL#3 오리지널 선물세트","itemBarcode":"8809597930255","packQty":"34","pltBoxQty":"","active":true,"clCode":"VVSL02030009"},{"brand":"갸스비","itemCode":"141255","itemName":"[갸스비]셋&킵스프레이 슈퍼하드 300ml","itemBarcode":"6921439806183","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00048"},{"brand":"갸스비","itemCode":"141198","itemName":"[갸스비]아이스 데오도란트 바디 페이퍼 아이스 시트러스 10매","itemBarcode":"4902806112726","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00016"},{"brand":"갸스비","itemCode":"141263","itemName":"[갸스비]스타일&케어오일 컬크림 150ml","itemBarcode":"6921439806343","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00062"},{"brand":"갸스비","itemCode":"141155","itemName":"[갸스비]훼이셜 클렌징티슈 아이스 타입 15매","itemBarcode":"4902806112511","packQty":"54","pltBoxQty":"","active":true,"clCode":"VKKW00006"},{"brand":"갸스비","itemCode":"141173","itemName":"[갸스비]무빙러버 그란지 매트 80g","itemBarcode":"4902806125894","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00034"},{"brand":"갸스비","itemCode":"141169","itemName":"[갸스비]무빙러버 와일드쉐이크 80g","itemBarcode":"4902806125405","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00030"},{"brand":"갸스비","itemCode":"141174","itemName":"[갸스비]무빙러버 익스트림매트 80g","itemBarcode":"4902806108781","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00035"},{"brand":"갸스비","itemCode":"VKKW00504","itemName":"[갸스비] 컬크림 웨이브&홀드 150ml","itemBarcode":"6921439807104","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00504"},{"brand":"갸스비","itemCode":"141154","itemName":"[갸스비]훼이셜 클렌징티슈 쿨 타입 15매","itemBarcode":"4902806569353","packQty":"54","pltBoxQty":"","active":true,"clCode":"VKKW00004"},{"brand":"갸스비","itemCode":"VKKW00531","itemName":"갸스비 스타일링 스프레이 EX 울트라 터프","itemBarcode":"6921439805254","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00531"},{"brand":"갸스비","itemCode":"141257","itemName":"[갸스비]스타일링 스프레이 매트&하드 200ml","itemBarcode":"4902806100259","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00050"},{"brand":"갸스비","itemCode":"141202","itemName":"[갸스비]스타일링 폼 슈퍼하드 185g","itemBarcode":"4902806583069","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00059"},{"brand":"갸스비","itemCode":"141199","itemName":"[갸스비]파우더 데오도란트 바디 페이퍼 쿨시트러스 10매","itemBarcode":"4902806112870","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00019"},{"brand":"갸스비","itemCode":"141254","itemName":"[갸스비] 셋&킵스프레이 슈퍼하드 263ml","itemBarcode":"4902806582888","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00047"},{"brand":"갸스비","itemCode":"141152","itemName":"[갸스비]오일크리어 필름 70매","itemBarcode":"4902806214284","packQty":"288","pltBoxQty":"","active":true,"clCode":"VKKW00002"},{"brand":"갸스비","itemCode":"141170","itemName":"[갸스비]무빙러버 루즈셔플 80g","itemBarcode":"4902806125573","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00031"},{"brand":"갸스비","itemCode":"141172","itemName":"[갸스비]무빙러버 쿨웨트 80g","itemBarcode":"4902806125726","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00033"},{"brand":"갸스비","itemCode":"141200","itemName":"[갸스비]아이스 데오도란트 바디 페이퍼 아이스 시트러스 대용량 30매","itemBarcode":"4902806112733","packQty":"20","pltBoxQty":"","active":false,"clCode":"VKKW00017"},{"brand":"갸스비","itemCode":"141186","itemName":"[갸스비]왁스킵스프레이 울티메이트 프리즈 183ml","itemBarcode":"4902806126785","packQty":"36","pltBoxQty":"","active":false,"clCode":""},{"brand":"갸스비","itemCode":"VKKW00010","itemName":"[갸스비] 쉐이빙 젤 쿨 타입 205g","itemBarcode":"4902806125887","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00010"},{"brand":"갸스비","itemCode":"141168","itemName":"[갸스비]무빙러버 스파이키엣지 80g","itemBarcode":"4902806125337","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00029"},{"brand":"갸스비","itemCode":"VKKW00072","itemName":"갸스비 그로스&하드 스타일링 미스트 250ml","itemBarcode":"6921439805490","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00072"},{"brand":"갸스비","itemCode":"141159","itemName":"[갸스비]쉐이빙폼 190g","itemBarcode":"4902806251449","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00009"},{"brand":"갸스비","itemCode":"VKKW00578","itemName":"[갸스비] 무빙 락 스프레이 엑스트라 하드 230ml","itemBarcode":"4902806136777","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00578"},{"brand":"갸스비","itemCode":"141185","itemName":"[갸스비]스타일링 왁스 울트라 하드 80g","itemBarcode":"4902806126549","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00042"},{"brand":"갸스비","itemCode":"141251","itemName":"[갸스비]스타일링 젤 슈퍼하드 200g","itemBarcode":"4902806583779","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00056"},{"brand":"갸스비","itemCode":"141201","itemName":"[갸스비]파우더 데오도란트 바디 페이퍼 쿨시트러스 대용량 30매","itemBarcode":"4902806112887","packQty":"20","pltBoxQty":"","active":false,"clCode":"VKKW00020"},{"brand":"갸스비","itemCode":"141193","itemName":"[갸스비]프리미엄 타입 데오도란트 롤온 스마트 샤봉 60ml","itemBarcode":"4902806102383","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00014"},{"brand":"갸스비","itemCode":"141156","itemName":"[갸스비]훼이셜 세안 티슈 쿨 타입 대용량 42매","itemBarcode":"4902806112412","packQty":"24","pltBoxQty":"","active":true,"clCode":"VKKW00005"},{"brand":"갸스비","itemCode":"141158","itemName":"[갸스비]훼이셜 모이스트 타입 42매","itemBarcode":"4902806112573","packQty":"24","pltBoxQty":"","active":true,"clCode":"VKKW00008"},{"brand":"갸스비","itemCode":"141157","itemName":"[갸스비]훼이셜 클렌징티슈 아이스 타입 42매","itemBarcode":"4902806112436","packQty":"24","pltBoxQty":"","active":true,"clCode":"VKKW00007"},{"brand":"갸스비","itemCode":"141276","itemName":"[갸스비] 헤어 앤 스칼프 트레이닝 토닉 볼륨 타입 200ml","itemBarcode":"8809221252708","packQty":"30","pltBoxQty":"","active":false,"clCode":"VKKW00096"},{"brand":"갸스비","itemCode":"141256","itemName":"[갸스비]셋&킵스프레이 슈퍼하드 67ml","itemBarcode":"4902806584028","packQty":"48","pltBoxQty":"","active":true,"clCode":"VKKW00049"},{"brand":"갸스비","itemCode":"VKKW00532","itemName":"갸스비 스타일링 미스트 슈퍼하드","itemBarcode":"4902806178937","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00532"},{"brand":"갸스비","itemCode":"VKKW00574","itemName":"[갸스비] 볼륨 & 홀드 컬크림 60ml","itemBarcode":"6921439806695","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00574"},{"brand":"갸스비","itemCode":"141153","itemName":"[갸스비]파우더 오일크리어 페이퍼 70매","itemBarcode":"4902806196689","packQty":"36","pltBoxQty":"","active":true,"clCode":"VKKW00165"},{"brand":"갸스비","itemCode":"141187","itemName":"[갸스비]무빙 락 스프레이 엑스트라 하드 253ml","itemBarcode":"4902806212259","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00053"},{"brand":"갸스비","itemCode":"141259","itemName":"[갸스비] 테크니컬 볼륨 스프레이 270ml","itemBarcode":"6921439805643","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00084"},{"brand":"갸스비","itemCode":"VKKW00274","itemName":"[사은품] 갸스비 훼이셜 페이퍼 5입","itemBarcode":"2025GATSM","packQty":"200","pltBoxQty":"","active":false,"clCode":"VKKW00274"},{"brand":"갸스비","itemCode":"VKKW00082","itemName":"[사은품]갸스비 망사파우치","itemBarcode":"8802025071100082","packQty":"90","pltBoxQty":"","active":false,"clCode":""},{"brand":"갸스비","itemCode":"VKKW00393","itemName":"[갸스비] 오일 크리어 필름 피치","itemBarcode":"4902806117752","packQty":"240","pltBoxQty":"","active":false,"clCode":"VKKW00393"},{"brand":"갸스비","itemCode":"VKKW00083","itemName":"[사은품]갸스비 스프레이 얼굴가리개(투명)","itemBarcode":"8802025071100083","packQty":"160","pltBoxQty":"","active":false,"clCode":""},{"brand":"갸스비","itemCode":"141192","itemName":"[갸스비]프리미엄 타입 데오도란트 롤 온 아쿠아틱 시트러스 60ml","itemBarcode":"4902806102376","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00015"},{"brand":"갸스비","itemCode":"141196","itemName":"[갸스비]파우더 데오도란트 스프레이 클리어오션 221ml","itemBarcode":"4902806483369","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00022"},{"brand":"갸스비","itemCode":"141195","itemName":"[갸스비]아이스 타입 데오도란트 스프레이 아이스시트러스 216ml","itemBarcode":"4902806483901","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00023"},{"brand":"갸스비","itemCode":"141194","itemName":"[갸스비]아이스 타입 데오도란트 스프레이 콜드 오션 216ml","itemBarcode":"4902806484014","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00024"},{"brand":"갸스비","itemCode":"141197","itemName":"[갸스비]파우더 데오도란트 스프레이 쿨시트러스 221ml","itemBarcode":"4902806483291","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00021"},{"brand":"갸스비","itemCode":"141281","itemName":"[갸스비]메타러버 왁스 하드 65g","itemBarcode":"4902806123197","packQty":"30","pltBoxQty":"","active":false,"clCode":"VKKW00088"},{"brand":"갸스비","itemCode":"141282","itemName":"[갸스비]메타러버 밤 스마트 60g","itemBarcode":"4902806123210","packQty":"30","pltBoxQty":"","active":false,"clCode":"VKKW00089"},{"brand":"갸스비","itemCode":"141171","itemName":"[갸스비]무빙러버 에어라이즈 80g","itemBarcode":"4902806125641","packQty":"36","pltBoxQty":"","active":false,"clCode":"VKKW00032"},{"brand":"갸스비","itemCode":"141283","itemName":"[갸스비]메타러버 클레이 플렉스 65g","itemBarcode":"4902806123166","packQty":"30","pltBoxQty":"","active":false,"clCode":"VKKW00090"},{"brand":"갸스비","itemCode":"141284","itemName":"[갸스비]메타러버 글로스 하드 70g","itemBarcode":"4902806123180","packQty":"30","pltBoxQty":"","active":false,"clCode":""},{"brand":"갸스비","itemCode":"144218","itemName":"갸스비 헤어 앤 스칼프 트레이닝 트리트먼트","itemBarcode":"8809221252692","packQty":"24","pltBoxQty":"","active":false,"clCode":"VKKW00095"},{"brand":"갸스비","itemCode":"141277","itemName":"[갸스비] 헤어 앤 스칼프 트레이닝 토닉 컬 타입 200ml","itemBarcode":"8809221252715","packQty":"30","pltBoxQty":"","active":false,"clCode":"VKKW00097"},{"brand":"갸스비","itemCode":"144217","itemName":"갸스비 헤어 앤 스칼프 트레이닝 샴푸","itemBarcode":"8809221252685","packQty":"12","pltBoxQty":"","active":false,"clCode":"VKKW00094"},{"brand":"리틀타익스","itemCode":"140553","itemName":"리틀 액티비티 가든","itemBarcode":"18809556742711","packQty":"1","pltBoxQty":"","active":true,"clCode":""},{"brand":"리틀타익스","itemCode":"140546","itemName":"더티디거 포크레인","itemBarcode":"050743650567","packQty":"1","pltBoxQty":"","active":true,"clCode":""},{"brand":"리틀타익스","itemCode":"150742","itemName":"탭어튠 피아노","itemBarcode":"8809556742721","packQty":"1","pltBoxQty":"","active":true,"clCode":""},{"brand":"리틀타익스","itemCode":"151570","itemName":"탭어튠 실로폰","itemBarcode":"8809556742738","packQty":"1","pltBoxQty":"","active":true,"clCode":""},{"brand":"리틀타익스","itemCode":"140556","itemName":"리틀타익스 액티비티 윈도우","itemBarcode":"18809701667364","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"140548","itemName":"더티디거 레미콘","itemBarcode":"050743650574","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"140547","itemName":"더티디거 불도저","itemBarcode":"050743650550","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"140567","itemName":"리틀타익스 퍼스트 냉장고","itemBarcode":"18809701668804","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"140554","itemName":"리틀 라이팅 액티비티 워커","itemBarcode":"050743640957","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"140545","itemName":"더티디거 덤프트럭","itemBarcode":"050743650543","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"151566","itemName":"리틀타익스 세탁","itemBarcode":"18809701668019","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"20250707","itemName":"리틀 블루이 부쉬랜드 어드벤쳐 물놀이세트","itemBarcode":"10050743641104","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"20240505","itemName":"[사은품]리틀 아기꽃게 딸랑이 2종세트","itemBarcode":"050743639616","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"11440552","itemName":"[사은품]리틀 호랑이 실로폰","itemBarcode":"880020240505","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"140568","itemName":"[사은품] 슬리피헤드","itemBarcode":"050743646881","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"리틀타익스","itemCode":"CJ14923000001","itemName":"탭어튠 피아노_실제 바코드","itemBarcode":"050743642999","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-78693","itemName":"마조렛 콜렉션 1965 쉘비 GT350","itemBarcode":"8809701664984","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-78723","itemName":"마조렛 콜렉션 1995 혼다 NSX-R-GT","itemBarcode":"8809701664953","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-78679","itemName":"마조렛 콜렉션 1955 쉐보레 벨 에어","itemBarcode":"8809701664991","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-78716","itemName":"마조렛 콜렉션 1985 쉐보레 까마로","itemBarcode":"8809701664960","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-78730","itemName":"마조렛 콜렉션 2005 쉐보레 코르베 C6 R","itemBarcode":"8809701664946","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-066317","itemName":"마조렛 포르쉐 기프트팩 20+랜덤 2팩","itemBarcode":"3467452066317","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-063187S","itemName":"마조렛 볼보 중장비 에디션 랜덤3종 세트","itemBarcode":"13467452063184","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-65488","itemName":"마조렛 폭스바겐 오리지날 5카 기프트팩","itemBarcode":"3467452065488","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-068465","itemName":"마조렛 슈퍼체이스센터 +5카","itemBarcode":"13467452068462","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-75364","itemName":"마조렛 프렌치터치 5카 기프트팩","itemBarcode":"3467452075364","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-74688","itemName":"마조렛 리미티드 에디션 10- 9+4 기프트팩","itemBarcode":"3467452074688","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-78709","itemName":"마조렛 콜렉션 1975 포르쉐 930 터보","itemBarcode":"8809701664977","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"마조렛","itemCode":"MAJO-0000","itemName":"(온) 마조렛 럭키박스1","itemBarcode":"8809701664939","packQty":"1","pltBoxQty":"","active":false,"clCode":""},{"brand":"그란츠","itemCode":"154066","itemName":"그란츠 치약 프레쉬 민트 110g","itemBarcode":"9312812000408","packQty":"72","pltBoxQty":"70","active":true,"clCode":"VKKW00556"},{"brand":"그란츠","itemCode":"154067","itemName":"그란츠 치약 프레쉬 마일드 민트 110g","itemBarcode":"9312812000101","packQty":"72","pltBoxQty":"70","active":true,"clCode":"VKKW00555"},{"brand":"그란츠","itemCode":"154065","itemName":"그란츠 치약 프로폴리스 110g","itemBarcode":"9312812003102","packQty":"72","pltBoxQty":"70","active":true,"clCode":"VKKW00554"},{"brand":"그란츠","itemCode":"154068","itemName":"그란츠 칫솔 1P","itemBarcode":"9312812002303","packQty":"200","pltBoxQty":"","active":true,"clCode":"VKKW00558"},{"brand":"라움365","itemCode":"154562","itemName":"라움 365 글루타치온 3% 나이아신아마이드 브라이트 토닝 앰플 50g","itemBarcode":"8809951052883","packQty":"50","pltBoxQty":"32","active":true,"clCode":""},{"brand":"라움365","itemCode":"154561","itemName":"라움 피디알엔 3% 팹타이드9 탄력부스터 앰플 50g","itemBarcode":"8809951052890","packQty":"50","pltBoxQty":"32","active":true,"clCode":""},{"brand":"라움365","itemCode":"154560","itemName":"라움 세라핏 시간 필링젤 크림 150ml","itemBarcode":"8809951051855","packQty":"80","pltBoxQty":"32","active":true,"clCode":""},{"brand":"라움365","itemCode":"154559","itemName":"라움 세라핏 시간 콜라겐 유자 랩핑 팩 80ml","itemBarcode":"8809951051787","packQty":"120","pltBoxQty":"32","active":true,"clCode":""},{"brand":"라움365","itemCode":"154558","itemName":"라움 세라핏 시간 약산성 폼 150ml","itemBarcode":"8809951051879","packQty":"60","pltBoxQty":"32","active":true,"clCode":""},{"brand":"라움365","itemCode":"154557","itemName":"라움 세라핏 시간 오일 미스트 94ml","itemBarcode":"8809951051800","packQty":"48","pltBoxQty":"32","active":true,"clCode":""},{"brand":"라움365","itemCode":"154556","itemName":"라움 세라핏 시간 에너지 업 크림 패드 70매 160g","itemBarcode":"8809951051794","packQty":"24","pltBoxQty":"32","active":true,"clCode":""},{"brand":"라움365","itemCode":"154555","itemName":"라움 세라핏 시간 코팅 크림 50ml","itemBarcode":"8809951051763","packQty":"36","pltBoxQty":"36","active":true,"clCode":""},{"brand":"라움365","itemCode":"154554","itemName":"라움 세라핏 시간 에센셜 세럼 50ml","itemBarcode":"8809951051756","packQty":"48","pltBoxQty":"36","active":true,"clCode":""},{"brand":"라움365","itemCode":"154553","itemName":"라움 세라핏 시간 인텐스 토너 140ml","itemBarcode":"8809951051749","packQty":"42","pltBoxQty":"32","active":true,"clCode":""},{"brand":"로버츠베리에","itemCode":"140425","itemName":"로버츠베리에 링곤베리&크랜베리 1box(100ml x 6팩)","itemBarcode":"6418630004734","packQty":"1","pltBoxQty":"625","active":true,"clCode":"VKKW00216"},{"brand":"로버츠베리에","itemCode":"139314","itemName":"로버츠베리에 빌베리&라즈베리 1box(100ml x 6팩)","itemBarcode":"6418630004789","packQty":"1","pltBoxQty":"625","active":true,"clCode":"VKKW00214"},{"brand":"로버츠베리에","itemCode":"139313","itemName":"로버츠베리에 빌베리 1box(100ml x 6팩)","itemBarcode":"6418630004727","packQty":"1","pltBoxQty":"625","active":true,"clCode":"VKKW00212"},{"brand":"로버츠베리에","itemCode":"139318","itemName":"로버츠베리에 빌베리&자두 1box(100ml x 6팩)","itemBarcode":"6418630012753","packQty":"1","pltBoxQty":"625","active":true,"clCode":""},{"brand":"로버츠베리에","itemCode":"139317","itemName":"로버츠베리에 블랙커런트&딸기1box(100ml x 6팩)","itemBarcode":"6418630005380","packQty":"1","pltBoxQty":"625","active":true,"clCode":"VKKW00462"},{"brand":"로버츠베리에","itemCode":"139316","itemName":"로버츠베리에 빌베리 라즈베리 디스펜서(3,000ml)","itemBarcode":"6418630012494","packQty":"1","pltBoxQty":"144","active":true,"clCode":"VKKW00215"},{"brand":"로버츠베리에","itemCode":"139315","itemName":"로버츠베리에 빌베리 디스펜서 (3,000ml)","itemBarcode":"6418630012470","packQty":"1","pltBoxQty":"144","active":true,"clCode":"VKKW00213"},{"brand":"로버츠베리에","itemCode":"140426","itemName":"로버츠베리에 링곤베리 크랜베리 디스펜서(3,000ml)","itemBarcode":"6418630012487","packQty":"1","pltBoxQty":"144","active":false,"clCode":"VKKW00217"},{"brand":"원더비","itemCode":"154648","itemName":"원더비 러브스위트 캡슐세제 32개입","itemBarcode":"8809124784405","packQty":"12","pltBoxQty":"54","active":true,"clCode":""},{"brand":"원더비","itemCode":"154649","itemName":"원더비 딥클린 액체세제 3L","itemBarcode":"8800286170068","packQty":"4","pltBoxQty":"48","active":true,"clCode":""},{"brand":"원더비","itemCode":"154651","itemName":"원더비 섬유유연제 플로프리지아 2L","itemBarcode":"8800286170082","packQty":"4","pltBoxQty":"60","active":true,"clCode":""},{"brand":"원더비","itemCode":"154650","itemName":"원더비 섬유유연제 플로라벤더 2L","itemBarcode":"8800286170075","packQty":"4","pltBoxQty":"60","active":true,"clCode":""},{"brand":"자이스","itemCode":"153257","itemName":"렌즈 와이프 50매","itemBarcode":"662834504057","packQty":"20","pltBoxQty":"125","active":true,"clCode":"VKKW00486"},{"brand":"자이스","itemCode":"153258","itemName":"렌즈 와이프 100매","itemBarcode":"662834504064","packQty":"20","pltBoxQty":"40","active":true,"clCode":"VKKW00487"},{"brand":"자이스","itemCode":"153259","itemName":"렌즈 와이프 200매","itemBarcode":"662834500592","packQty":"20","pltBoxQty":"24","active":true,"clCode":"VKKW00488"},{"brand":"자이스","itemCode":"153587","itemName":"안티포그 100매","itemBarcode":"662834509748","packQty":"12","pltBoxQty":"48","active":true,"clCode":"VKKW00500"},{"brand":"자이스","itemCode":"153601","itemName":"렌즈 와이프 6매","itemBarcode":"662834504248","packQty":"700","pltBoxQty":"24","active":true,"clCode":"VKKW00497"},{"brand":"자이스","itemCode":"153598","itemName":"안티포그 4매","itemBarcode":"662834518115","packQty":"250","pltBoxQty":"48","active":true,"clCode":"VKKW00501"},{"brand":"후","itemCode":"154127","itemName":"다크민트","itemBarcode":"8800349040017","packQty":"160","pltBoxQty":"48","active":true,"clCode":""},{"brand":"후","itemCode":"154125","itemName":"콜라아이스","itemBarcode":"8800349040031","packQty":"160","pltBoxQty":"48","active":true,"clCode":""},{"brand":"후","itemCode":"154126","itemName":"시가멜로","itemBarcode":"8800349040000","packQty":"160","pltBoxQty":"48","active":true,"clCode":""},{"brand":"후","itemCode":"154128","itemName":"바나나프레시","itemBarcode":"8800349040024","packQty":"160","pltBoxQty":"48","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 이뮨샷 1박스","itemBarcode":"4004192904845","packQty":"10","pltBoxQty":"392","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 이뮨샷 3박스","itemBarcode":"8809694220365","packQty":"30","pltBoxQty":"96","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 이뮨킥 10개입, 1개","itemBarcode":"4004192904494","packQty":"10","pltBoxQty":"392","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 이뮨킥 30개입, 1개","itemBarcode":"8809694220440","packQty":"30","pltBoxQty":"96","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 이뮨샷 골드 올인원 비타민 플러스 1박스","itemBarcode":"4004192904579","packQty":"10","pltBoxQty":"392","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 이뮨샷 골드 올인원 비타민 플러스 3박스","itemBarcode":"8809694220372","packQty":"30","pltBoxQty":"96","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 키성장영양제 그로우업 샷 HT042 10개입","itemBarcode":"4004192905354","packQty":"10","pltBoxQty":"392","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 11바이탈플러스 700ml  1병","itemBarcode":"4004192006020","packQty":"1","pltBoxQty":"96","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"[증정] 로트벡쉔 선물박스","itemBarcode":"8809694220457","packQty":"25","pltBoxQty":"50","active":true,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 11바이탈플러스 700ml *6병","itemBarcode":"8809694220433","packQty":"","pltBoxQty":"","active":false,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 그로우업 바이탈 HT042 1박스","itemBarcode":"4004192904715","packQty":"","pltBoxQty":"","active":false,"clCode":""},{"brand":"로트벡쉔","itemCode":"","itemName":"로트벡쉔 그로우업 바이탈 HT042 3박스","itemBarcode":"8809694220389","packQty":"","pltBoxQty":"","active":false,"clCode":""}],"logistics":{"VSL":{"supplierName":"에스와이인터내셔널","inboundCenter":"안성저온 F/C","inboundAddress":"안성시 일죽면 신흥리 1006","inboundManagerContact":"이선호님_031-786-2358","outboundAddress":"경기도 파주시 월롱면 산들로 143 채우다","outboundManagerContact":"정민호 과장님_010-7788-4099"},"갸스비":{"supplierId":"90014664","supplierName":"서정커머스","bizRegNo":"295-87-00782","inboundCenter":"군포네이버센터","inboundAddress":"경기도 군포시 번영로 82 E동 43 dock","inboundManagerContact":"010-9023-8165","outboundAddress":"경기도 파주시 월롱면 산들로 143 채우다","outboundManagerContact":"정민호 과장님_010-7788-4099"},"리틀타익스":{"supplierId":"90014923","supplierName":"웰빙프라자","bizRegNo":"128-28-12846","inboundCenter":"군포네이버센터","inboundAddress":"경기도 군포시 번영로 82 E동 43 dock","inboundManagerContact":"010-9023-8165","outboundAddress":"경기도 파주시 문발로 129","outboundManagerContact":"황아름 주임님_031-921-2532"},"마조렛":{},"그란츠":{"supplierId":"GRA","supplierName":"인트리홀딩스","bizRegNo":"105-86-50094","inboundCenter":"롯데글로벌로지스 군포 F/C","inboundAddress":"경기도 군포시 번영로 82-27 군포복합물류터미널 N동 1층 롯데택배 군포터미널 B하차대 10번도크","inboundManagerContact":"이태우님_010-4555-7132","outboundAddress":"경기도 파주시 월롱면 산들로 143 채우다","outboundManagerContact":"정민호 과장님_010-7788-4099"},"라움365":{"supplierId":"RAU"},"로버츠베리에":{},"원더비":{},"자이스":{},"후":{},"로트벡쉔":{}},"carriers":{"VSL":"CJ","갸스비":"CJ","리틀타익스":"CJ","마조렛":"CJ","그란츠":"롯데","라움365":"롯데","로버츠베리에":"롯데","원더비":"롯데","자이스":"롯데","후":"롯데","로트벡쉔":"품고"}};
+function applyFulfillmentSheetV1(force){
+  const f = ensureFulfillment();
+  if(f.sheetV1Applied && !force) return;
+  f.sheetV1Applied = true;
+  const D = FULFILL_SHEET_V1;
+  let upd = 0, add = 0, newBrands = [];
+  Object.keys(D.carriers).forEach(b=>{
+    const ex = f.brandCarriers.find(x=>x.brand===b);
+    if(ex){ if(D.carriers[b]) ex.carrier = D.carriers[b]; }
+    else { f.brandCarriers.push({id:uid(), brand:b, carrier:D.carriers[b]||''}); newBrands.push(b); }
+  });
+  D.items.forEach(src=>{
+    let row = null;
+    if(src.itemCode) row = f.items.find(x=>String(x.itemCode||'').trim()===src.itemCode);
+    if(!row && src.itemBarcode) row = f.items.find(x=>String(x.itemBarcode||'').trim()===src.itemBarcode);
+    if(row){
+      row.brand = src.brand; row.itemCode = src.itemCode; row.itemBarcode = src.itemBarcode; row.itemName = src.itemName;
+      row.packQty = src.packQty; row.pltBoxQty = src.pltBoxQty; row.clCode = src.clCode; row.active = src.active;
+      touch(row); upd++;
+    } else {
+      f.items.push(touch(Object.assign({id:uid()}, src))); add++;
+    }
+  });
+  let logiBrands = 0;
+  Object.keys(D.logistics).forEach(b=>{
+    const vals = D.logistics[b];
+    if(!Object.keys(vals).length) return;
+    const rec = ensureFulfillmentLogistics(b);
+    Object.keys(vals).forEach(k=>{ rec[k] = vals[k]; });
+    logiBrands++;
+  });
+  f.sheetV1Msg = `시트 반영 완료: 품목 ${upd}개 갱신 · ${add}개 새로 추가 · 입출고 정보 ${logiBrands}개 브랜드 채움`+(newBrands.length?` · 새 브랜드 ${newBrands.join(', ')}`:'');
+  saveState();
+}
+
+/* ---- 재고 불러오기: 관리부 재고 현황(stock_share.php)에서 CL 코드 기준으로 판매가능 재고·출고량을 가져온다 ----
+   공유키가 들어있는 주소는 코드에 넣지 않고, 이 기기(브라우저)에만 저장한다(서버 동기화 안 함). */
+const STOCK_URL_KEY = 'naver_stock_share_url_v1';
+function getStockShareUrl(){ try{ return localStorage.getItem(STOCK_URL_KEY)||''; }catch(e){ return ''; } }
+function saveStockShareUrl(v){
+  v = String(v||'').trim().replace('stock_widget.php','stock_share.php');
+  try{ if(v) localStorage.setItem(STOCK_URL_KEY, v); else localStorage.removeItem(STOCK_URL_KEY); }catch(e){}
+  render();
+}
+async function syncFulfillmentStock(){
+  const base = getStockShareUrl();
+  if(!base){ alert('먼저 화면 위쪽 "⚙ 재고 연동 주소"를 펼쳐서 stock_share.php 주소를 붙여넣고 저장해주세요.'); return; }
+  const f = ensureFulfillment();
+  const btn = document.getElementById('stockSyncBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '불러오는 중…'; }
+  try{
+    const codes = Array.from(new Set(f.items.map(it=>String(it.clCode||'').trim()).filter(Boolean)));
+    if(!codes.length) throw new Error('CL 코드가 있는 품목이 없어요');
+    const byCode = {}; let clAt = '';
+    for(let i=0;i<codes.length;i+=40){
+      const u = new URL(base);
+      u.searchParams.set('view','items');
+      u.searchParams.set('codes', codes.slice(i,i+40).join(','));
+      const r = await fetch(u.toString(), {cache:'no-store'});
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j = await r.json();
+      if(!j || j.ok===false) throw new Error((j && j.error) || '응답 오류');
+      clAt = j.cl_at || clAt;
+      (j.items||[]).forEach(x=>{ byCode[x.code] = x; });
+    }
+    let hit = 0, none = 0;
+    f.items.forEach(it=>{
+      const c = String(it.clCode||'').trim();
+      if(!c) return;
+      const x = byCode[c];
+      let avail = '', out7 = '';
+      if(x && x.in_cl){ avail = Math.round(Number(x.avail)||0); out7 = Math.round((Number(x.daily_out)||0)*7); }
+      else if(x && x.name){ avail = 0; out7 = Math.round((Number(x.daily_out)||0)*7); }
+      if(avail==='') none++; else hit++;
+      it.stockAvail = avail; it.out7 = out7; touch(it);
+    });
+    const d = clAt ? new Date(clAt) : null;
+    f.stockMsg = `재고 불러오기 완료: ${hit}개 갱신` + (none?` · 재고 정보 없음 ${none}개`:'') + (d && !isNaN(d) ? ` · CL ${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} 수집 기준(실시간 아님)` : '');
+    saveState(); render();
+  }catch(e){
+    if(btn){ btn.disabled = false; btn.textContent = '재고 불러오기'; }
+    alert('재고를 불러오지 못했어요.\n\n'+e.message+'\n\n주소(공유키 포함)가 맞는지, 그리고 나스가 이 앱의 접근을 허용하는지 확인해주세요.');
+  }
+}
 /* ---- 품목 데이터 ---- */
 function addFulfillmentItem(){
   const f = ensureFulfillment();
-  f.items.unshift({id:uid(), brand:fulfillmentBrandList()[0]||'', itemCode:'', itemBarcode:'', itemName:'', packQty:''});
+  f.items.unshift({id:uid(), brand:fulfillmentBrandList()[0]||'', itemCode:'', itemBarcode:'', itemName:'', packQty:'', pltBoxQty:'', clCode:'', active:true});
   saveState(); render();
 }
 function deleteFulfillmentItem(id){
@@ -3725,9 +3814,12 @@ function renderFulfillmentInboundCalc(){
 }
 
 function renderFulfillmentItems(){
+  applyFulfillmentSheetV1(); // 구글시트 기준 최초 1회 갱신 (이미 했으면 건너뜀)
   const f = ensureFulfillment();
   const brands = fulfillmentBrandList();
-  const visibleItems = f.items.filter(it=> !it.brand || isFulfillmentBrandVisible(it.brand));
+  // 사용 꺼진 품목은 맨 아래로(기존 순서는 유지)
+  const visibleItems = f.items.filter(it=> !it.brand || isFulfillmentBrandVisible(it.brand))
+    .map((it,i)=>({it,i})).sort((a,b)=> ((a.it.active===false)-(b.it.active===false)) || (a.i-b.i)).map(x=>x.it);
   const visibleBrands = brands.filter(b=>isFulfillmentBrandVisible(b));
 
   return `
@@ -3739,6 +3831,7 @@ function renderFulfillmentItems(){
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn ghost" style="color:var(--text-primary)" onclick="navigate('promo_manage')">📥 엑셀로 일괄 등록</button>
+        <button class="btn ghost" id="stockSyncBtn" style="color:var(--text-primary)" onclick="syncFulfillmentStock()">📦 재고 불러오기</button>
         <button class="btn" onclick="addFulfillmentItem()">+ 새 품목 추가</button>
       </div>
     </div>
@@ -3767,6 +3860,16 @@ function renderFulfillmentItems(){
       </div>
     </details>
 
+    ${f.stockMsg ? `<div class="card" style="background:#EEF4FB;border-color:#C9DBF0;padding:10px 16px;font-size:13px">📦 ${f.stockMsg}<button class="copy-btn" style="float:right" onclick="ensureFulfillment().stockMsg='';saveState();render()">닫기</button></div>` : ''}
+    <details style="margin-bottom:12px">
+      <summary style="cursor:pointer;font-size:12.5px;color:var(--text-secondary);font-weight:700;padding:4px 0">⚙ 재고 연동 주소 ${getStockShareUrl()?'(저장됨)':'(미설정)'}</summary>
+      <div class="card" style="margin-top:8px">
+        <div class="helptext" style="margin-top:0">관리부 재고 현황의 <b>stock_share.php 주소(공유키 s=… 포함)</b>를 붙여넣고 저장하세요. 이 주소는 이 컴퓨터에만 저장되고 서버로 동기화되지 않아요.</div>
+        <div style="display:flex;gap:8px;margin-top:8px"><input id="stockUrlInput" class="row-input" style="text-align:left;flex:1" placeholder="https://…/stock_share.php?s=…" value="${getStockShareUrl().replace(/"/g,'&quot;')}"><button class="btn" onclick="saveStockShareUrl(document.getElementById('stockUrlInput').value)">저장</button></div>
+      </div>
+    </details>
+    ${f.sheetV1Msg ? `<div class="card" style="background:#EAF6EE;border-color:#BFE3CC;padding:10px 16px;font-size:13px">✅ ${f.sheetV1Msg}<button class="copy-btn" style="float:right" onclick="ensureFulfillment().sheetV1Msg='';saveState();render()">닫기</button></div>` : ''}
+
     ${renderFulfillmentBrandFilterBar()}
 
     <div class="card">
@@ -3783,6 +3886,7 @@ function renderFulfillmentItems(){
               <div class="fulfill-field"><label>입고센터</label><input value="${rec.inboundCenter||''}" onchange="updateFulfillmentLogisticsField('${brand}','inboundCenter',this.value)"></div>
               <div class="fulfill-field"><label>입고지 주소</label><input value="${rec.inboundAddress||''}" onchange="updateFulfillmentLogisticsField('${brand}','inboundAddress',this.value)"></div>
               <div class="fulfill-field" style="grid-column:1/-1"><label>입고 담당자_연락처</label><input placeholder="홍길동_010-1234-5678" value="${rec.inboundManagerContact||''}" onchange="updateFulfillmentLogisticsField('${brand}','inboundManagerContact',this.value)"></div>
+              <div class="fulfill-field"><label>공급사ID</label><input value="${rec.supplierId||''}" onchange="updateFulfillmentLogisticsField('${brand}','supplierId',this.value)"></div>
               <div class="fulfill-field"><label>공급사명</label><input value="${rec.supplierName||''}" onchange="updateFulfillmentLogisticsField('${brand}','supplierName',this.value)"></div>
               <div class="fulfill-field"><label>사업자번호</label><input value="${rec.bizRegNo||''}" onchange="updateFulfillmentLogisticsField('${brand}','bizRegNo',this.value)"></div>
               <div class="fulfill-field" style="grid-column:1/-1"><label>출고지 주소</label><input value="${rec.outboundAddress||''}" onchange="updateFulfillmentLogisticsField('${brand}','outboundAddress',this.value)"></div>
@@ -3798,12 +3902,13 @@ function renderFulfillmentItems(){
       ${visibleItems.length===0 ? `<div class="empty">${f.items.length===0 ? '등록된 품목이 없습니다. 오른쪽 위 버튼으로 추가해보세요.' : '필터 조건에 맞는 품목이 없습니다.'}</div>` : `
       <table style="table-layout:fixed;width:100%">
         <colgroup>
-          <col style="width:110px"><col style="width:84px"><col style="width:110px"><col><col style="width:64px"><col style="width:30px">
+          <col style="width:46px"><col style="width:100px"><col style="width:96px"><col style="width:124px"><col><col style="width:56px"><col style="width:64px"><col style="width:100px"><col style="width:84px"><col style="width:84px"><col style="width:30px">
         </colgroup>
-        <thead><tr><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th></th></tr></thead>
+        <thead><tr><th style="text-align:center">사용</th><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th class="num">PLT당 박스</th><th>CL 코드</th><th class="num" title="CL 창고 가용재고(하루 3번 수집)">판매가능 재고</th><th class="num" title="최근 14일 하루 평균 출고 × 7 (가구매 제외)">7일 출고(환산)</th><th></th></tr></thead>
         <tbody>
           ${visibleItems.map(it=>`
-            <tr>
+            <tr style="${it.active===false?'opacity:.42;background:rgba(0,0,0,.04)':''}">
+              <td style="text-align:center"><input type="checkbox" ${it.active===false?'':'checked'} onchange="updateFulfillmentItemField('${it.id}','active',this.checked)" title="사용 여부"></td>
               <td>
                 <select class="row-input" style="text-align:left" onchange="updateFulfillmentItemField('${it.id}','brand',this.value)">
                   <option value="">선택</option>
@@ -3814,6 +3919,10 @@ function renderFulfillmentItems(){
               <td><input class="row-input" style="text-align:left" value="${it.itemBarcode||''}" onchange="updateFulfillmentItemField('${it.id}','itemBarcode',this.value)"></td>
               <td><input class="row-input" style="text-align:left" value="${it.itemName||''}" onchange="updateFulfillmentItemField('${it.id}','itemName',this.value)"></td>
               <td class="num"><input class="row-input" type="number" value="${it.packQty||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','packQty',this.value)"></td>
+              <td class="num"><input class="row-input" type="number" value="${it.pltBoxQty||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','pltBoxQty',this.value)"></td>
+              <td><input class="row-input" style="text-align:left" value="${it.clCode||''}" onchange="updateFulfillmentItemField('${it.id}','clCode',this.value)"></td>
+              <td class="num mono">${it.stockAvail===undefined||it.stockAvail==='' ? '<span style="color:var(--text-secondary)">-</span>' : (it.stockAvail<=0 ? `<span style="color:#e01e1e;font-weight:700">${it.stockAvail}</span>` : Number(it.stockAvail).toLocaleString('ko-KR'))}</td>
+              <td class="num mono">${it.out7===undefined||it.out7==='' ? '<span style="color:var(--text-secondary)">-</span>' : Number(it.out7).toLocaleString('ko-KR')}</td>
               <td><button class="btn-del" onclick="deleteFulfillmentItem('${it.id}')" title="삭제">✕</button></td>
             </tr>
           `).join('')}
@@ -4218,7 +4327,7 @@ function importFulfillmentItemsFromRows(rows, position, batchId){
   rows.forEach(row=>{
     const brand = excelRowVal(row,'브랜드');
     const itemCode = excelRowVal(row,'품목코드');
-    const itemBarcode = excelRowVal(row,'품목바코드');
+    const itemBarcode = excelRowVal(row,'품목바코드') || excelRowVal(row,'바코드');
     const itemName = excelRowVal(row,'품목명');
     const packQty = excelRowVal(row,'입수량').replace(/[^\d.\-]/g,'');
     if(!brand && !itemCode && !itemBarcode && !itemName) return;
@@ -4226,7 +4335,10 @@ function importFulfillmentItemsFromRows(rows, position, batchId){
     if(brand && !f.brandCarriers.some(bc=>bc.brand===brand)){
       f.brandCarriers.push({id:uid(), brand, carrier:''});
     }
-    imported.push({id:uid(), importBatchId: batchId, brand, itemCode, itemBarcode, itemName, packQty});
+    const useRaw = String(excelRowVal(row,'사용')||'').trim().toUpperCase();
+    imported.push({id:uid(), importBatchId: batchId, brand, itemCode, itemBarcode, itemName, packQty,
+      pltBoxQty: String(excelRowVal(row,'PLT당 박스수')||'').replace(/[^\d.\-]/g,''), clCode: excelRowVal(row,'CL 코드')||'',
+      active: !['FALSE','0','N','X'].includes(useRaw)});
     count++;
   });
   if(position==='bottom') f.items.push(...imported);
