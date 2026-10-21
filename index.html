@@ -595,6 +595,30 @@
     .page-side{width:100%;position:relative;top:0;max-height:none;}
     .brg-grid{grid-template-columns:1fr;}
   }
+.cp-input{width:120px;text-align:center !important}
+.cp-date-card{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:linear-gradient(135deg,#FFF4EC,#FFFFFF);border:1px solid #F7D2B8;border-radius:16px;padding:16px 20px;margin-bottom:16px}
+.cp-date-field{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.cp-date-label{font-size:12px;font-weight:700;color:#E8590C}
+.cp-date-input{font-size:17px;font-weight:700;padding:8px 12px;border:1.5px solid #F0B48A;border-radius:10px;background:#fff;color:#222;font-family:inherit}
+.cp-date-input:focus{outline:none;border-color:#E8590C}
+.cp-date-dow{font-size:12px;color:var(--text-secondary);min-height:14px}
+.cp-date-arrow{font-size:22px;color:#E8590C;padding-top:4px}
+.cp-date-chips{display:flex;gap:6px}
+.cp-chip{border:1px solid #F0B48A;background:#fff;color:#E8590C;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.cp-chip:hover{background:#E8590C;color:#fff}
+.cp-date-summary{margin-left:auto;text-align:right}
+.cp-dday{font-size:26px;font-weight:800;color:#E8590C}
+.cp-total{font-size:13px;color:var(--text-secondary)}
+.cp-group{background:var(--card-bg,#fff);border:1px solid var(--border,#e5e7eb);border-radius:12px;margin-bottom:12px;overflow:hidden}
+.cp-group-head{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;border-left:5px solid #ccc;user-select:none}
+.cp-group-head:hover{background:rgba(0,0,0,.03)}
+.cp-caret{font-size:11px;color:var(--text-secondary);width:12px}
+.cp-group-name{font-size:16px;font-weight:800}
+.cp-group-count{font-size:12px;color:var(--text-secondary)}
+.cp-group-sub{margin-left:auto;font-size:13px;font-weight:700}
+.cp-group-body{padding:4px 16px 14px;overflow-x:auto}
+.cp-table{width:auto;table-layout:fixed}
+.cp-table th{font-size:12px}
 .cp-input{background:#FFF8E1 !important;border:1.5px solid #F0B429 !important;border-radius:6px;padding:6px 8px}
 .cp-input:focus{background:#fff !important;border-color:#E8590C !important;outline:none}
 </style>
@@ -8632,6 +8656,7 @@ function updateChargePlanRow(rid, field, value, inputEl){
   const r = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
   const cell = document.getElementById('cpNeed_'+rid.replace(/[^0-9A-Za-z가-힣]/g,'_'));
   if(r && cell){ const need = chargePlanNeed(r); cell.innerHTML = need===null ? '<span style="color:var(--text-secondary)">-</span>' : (need>0 ? `<b>${formatWon(need)}</b>` : '<span style="color:var(--text-secondary)">충전 불필요</span>'); }
+  if(r){ const se = document.getElementById('cpSub_'+r.adType); if(se) se.textContent = '충전필요 '+formatWon(chargePlanRows().filter(x=>x.adType===r.adType).reduce((a,x)=>a+(chargePlanNeed(x)||0),0)); }
   const totalEl = document.getElementById('cpTotal');
   if(totalEl) totalEl.textContent = formatWon(chargePlanRows().reduce((s,x)=>s+(chargePlanNeed(x)||0),0));
 }
@@ -8667,13 +8692,35 @@ function addChargeRow(rid){
   }
   saveState(); render();
 }
+const CHARGE_GROUPS = [
+  {type:'shogeom',   label:'쇼검',     color:'#2F6FED'},
+  {type:'gfa',       label:'GFA',      color:'#7C4DFF'},
+  {type:'seosea',    label:'스스광고', color:'#12A150'},
+  {type:'brgeom',    label:'브검',     color:'#F0932B'},
+  {type:'bizwallet', label:'비즈월렛', color:'#E0578C'},
+];
+function toggleChargeGroup(type){
+  const p = ensureChargePlan();
+  if(!p.collapsed || typeof p.collapsed!=='object') p.collapsed = {};
+  p.collapsed[type] = !p.collapsed[type];
+  saveState(); render();
+}
+function setChargeNextOffset(n){
+  const p = ensureChargePlan();
+  const base = new Date((p.today || todayStr())+'T00:00:00');
+  base.setDate(base.getDate()+n);
+  p.nextDate = base.getFullYear()+'-'+String(base.getMonth()+1).padStart(2,'0')+'-'+String(base.getDate()).padStart(2,'0');
+  saveState(); render();
+}
 function renderChargeAll(){
   const p = ensureChargePlan();
   const today = p.today || todayStr();
   const days = chargePlanDays();
-  const rows = chargePlanRows();
-  const total = rows.reduce((s,r)=>s+(chargePlanNeed(r)||0),0);
-  let lastType = '';
+  const allRows = chargePlanRows();
+  const total = allRows.reduce((s,r)=>s+(chargePlanNeed(r)||0),0);
+  const collapsed = p.collapsed || {};
+  const fmt = x => x ? Number(x).toLocaleString('ko-KR') : '';
+  const dow = d => d ? '일월화수목금토'[new Date(d+'T00:00:00').getDay()] : '';
   return `
     <div class="page-header">
       <div>
@@ -8683,45 +8730,65 @@ function renderChargeAll(){
       </div>
     </div>
 
-    <div class="card">
-      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end">
-        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">오늘 날짜
-          <input type="date" value="${today}" onchange="updateChargePlanDate('today',this.value)">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">다음 충전 날짜
-          <input type="date" value="${p.nextDate||''}" onchange="updateChargePlanDate('nextDate',this.value)">
-        </label>
-        <div style="font-size:13px;color:var(--text-secondary)">${days!==null ? `다음 충전일까지 <b>${days}일</b>` : '다음 충전 날짜를 오늘 이후로 입력하면 계산돼요'}</div>
-        <div style="margin-left:auto;font-size:14px">충전필요 합계 <b id="cpTotal">${formatWon(total)}</b></div>
+    <div class="cp-date-card">
+      <div class="cp-date-field">
+        <span class="cp-date-label">오늘 날짜</span>
+        <input type="date" class="cp-date-input" value="${today}" onchange="updateChargePlanDate('today',this.value)">
+        <span class="cp-date-dow">${dow(today)}요일</span>
+      </div>
+      <div class="cp-date-arrow">→</div>
+      <div class="cp-date-field">
+        <span class="cp-date-label">다음 충전 날짜</span>
+        <input type="date" class="cp-date-input" value="${p.nextDate||''}" onchange="updateChargePlanDate('nextDate',this.value)">
+        <span class="cp-date-dow">${p.nextDate ? dow(p.nextDate)+'요일' : ''}</span>
+      </div>
+      <div class="cp-date-chips">
+        ${[7,10,14,30].map(n=>`<button class="cp-chip" onclick="setChargeNextOffset(${n})">+${n}일</button>`).join('')}
+      </div>
+      <div class="cp-date-summary">
+        <div class="cp-dday">${days!==null ? `D-${days}` : '날짜 선택'}</div>
+        <div class="cp-total">충전필요 합계 <b id="cpTotal">${formatWon(total)}</b></div>
       </div>
     </div>
 
-    <div class="card" style="overflow-x:auto">
-      <table style="width:auto;table-layout:fixed;min-width:0">
-        <colgroup><col style="width:80px"><col style="width:150px"><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:70px"></colgroup>
-        <thead><tr><th>광고명</th><th>브랜드</th><th class="num">현잔액</th><th class="num">평균 소진금액 (일)</th><th class="num">충전필요 금액</th><th></th></tr></thead>
-        <tbody>
-          ${rows.map(r=>{
-            const rid = chargePlanRowId(r);
-            const v = p.rows[rid] || {};
-            const need = chargePlanNeed(r);
-            const cid = rid.replace(/[^0-9A-Za-z가-힣]/g,'_');
-            const sep = r.adType!==lastType ? 'border-top:2px solid var(--border,#ddd)' : '';
-            lastType = r.adType;
-            const fmt = x => x ? Number(x).toLocaleString('ko-KR') : '';
-            return `<tr style="${sep}">
-              <td>${r.adName}</td>
-              <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.brand}">${r.key}</td>
-              <td class="num"><input class="sheet-input cp-input" style="text-align:right;width:120px" inputmode="numeric" value="${fmt(v.balance)}" onchange="updateChargePlanRow('${rid.replace(/'/g,"\\'")}','balance',this.value,this)"></td>
-              <td class="num"><input class="sheet-input cp-input" style="text-align:right;width:120px" inputmode="numeric" value="${fmt(v.avg)}" onchange="updateChargePlanRow('${rid.replace(/'/g,"\\'")}','avg',this.value,this)"></td>
-              <td class="num mono" id="cpNeed_${cid}">${need===null ? '<span style="color:var(--text-secondary)">-</span>' : (need>0 ? `<b>${formatWon(need)}</b>` : '<span style="color:var(--text-secondary)">충전 불필요</span>')}</td>
-              <td><button class="btn" style="padding:4px 10px" onclick="addChargeRow('${rid.replace(/'/g,"\\'")}')">추가</button></td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-      <div class="helptext">각 행의 '추가'를 누르면 그 항목의 충전필요 금액이 위 '오늘 날짜'로 해당 광고 탭(GFA·쇼검·스스광고·비즈월렛은 충전 내역, 브검은 PC 시작일/충전금액)에 등록되고, 충전기안에 바로 나타나요. 충전기안에 계정이 등록돼 있어야 문구가 만들어집니다.</div>
-    </div>
+    ${CHARGE_GROUPS.map(g=>{
+      const rows = allRows.filter(r=>r.adType===g.type);
+      const sub = rows.reduce((s,r)=>s+(chargePlanNeed(r)||0),0);
+      const isClosed = !!collapsed[g.type];
+      return `
+      <div class="cp-group">
+        <div class="cp-group-head" style="border-left-color:${g.color}" onclick="toggleChargeGroup('${g.type}')">
+          <span class="cp-caret">${isClosed?'▶':'▼'}</span>
+          <span class="cp-group-name" style="color:${g.color}">${g.label}</span>
+          <span class="cp-group-count">${rows.length}개</span>
+          <span class="cp-group-sub" id="cpSub_${g.type}">충전필요 ${formatWon(sub)}</span>
+        </div>
+        ${isClosed ? '' : `
+        <div class="cp-group-body">
+          <table class="cp-table">
+            <colgroup><col style="width:190px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:70px"></colgroup>
+            <thead><tr><th style="text-align:left">브랜드</th><th style="text-align:center">현잔액</th><th style="text-align:center">평균 소진금액 (일)</th><th style="text-align:center">충전필요 금액</th><th></th></tr></thead>
+            <tbody>
+              ${rows.length===0 ? `<tr><td colspan="5" style="text-align:center;color:var(--text-secondary)">등록된 항목이 없습니다</td></tr>` : rows.map(r=>{
+                const rid = chargePlanRowId(r);
+                const v = p.rows[rid] || {};
+                const need = chargePlanNeed(r);
+                const cid = rid.replace(/[^0-9A-Za-z가-힣]/g,'_');
+                const q = rid.replace(/'/g,"\\'");
+                return `<tr>
+                  <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.brand}">${r.key}</td>
+                  <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.balance)}" onchange="updateChargePlanRow('${q}','balance',this.value,this)"></td>
+                  <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.avg)}" onchange="updateChargePlanRow('${q}','avg',this.value,this)"></td>
+                  <td class="mono" style="text-align:center" id="cpNeed_${cid}">${need===null ? '<span style="color:var(--text-secondary)">-</span>' : (need>0 ? `<b>${formatWon(need)}</b>` : '<span style="color:var(--text-secondary)">충전 불필요</span>')}</td>
+                  <td><button class="btn" style="padding:4px 10px" onclick="addChargeRow('${q}')">추가</button></td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>`}
+      </div>`;
+    }).join('')}
+    <div class="helptext">각 행의 '추가'를 누르면 그 항목의 충전필요 금액이 위 '오늘 날짜'로 해당 광고 탭(GFA·쇼검·스스광고·비즈월렛은 충전 내역, 브검은 PC 시작일/충전금액)에 등록되고, 충전기안에 바로 나타나요. 광고명을 누르면 접고 펼 수 있어요.</div>
   `;
 }
 
