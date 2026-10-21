@@ -3589,6 +3589,7 @@ async function diagnoseStockSync(){
 }
 /* VSL 과 VSL3 는 같은 브랜드로 본다. 이미 있는 쪽 이름을 기준으로 맞춘다(둘 다 없으면 VSL3). */
 function normalizeFulfillmentBrand(b){
+  if(b==='후에버' && ensureFulfillment().brandCarriers.some(x=>x.brand==='후')) return '후';
   if(b!=='VSL' && b!=='VSL3') return b;
   const names = ensureFulfillment().brandCarriers.map(x=>x.brand);
   if(names.includes('VSL3')) return 'VSL3';
@@ -3620,6 +3621,22 @@ function mergeVslIntoVsl3(){
   }
   if(f.itemFilter['VSL']!==undefined){ if(f.itemFilter['VSL3']===undefined) f.itemFilter['VSL3'] = f.itemFilter['VSL']; delete f.itemFilter['VSL']; }
   f.sheetV1Msg = `VSL 품목 ${moved}개를 VSL3로 다시 합쳤어요 (VSL = VSL3)` + (f.sheetV1Msg ? ' · '+f.sheetV1Msg : '');
+  saveState();
+}
+/* '후에버'가 '후'와 따로 생긴 것을 정리(1회): 후에버에 품목이 있으면 '후'로 옮기고, 입출고 정보는 '후'의 빈 칸만 채운 뒤 후에버 브랜드를 없앤다. */
+function mergeHueverIntoHu(){
+  const f = ensureFulfillment();
+  if(f.hueverMergedV1) return;
+  f.hueverMergedV1 = true;
+  const hv = f.brandCarriers.find(x=>x.brand==='후에버');
+  const hu = f.brandCarriers.find(x=>x.brand==='후');
+  if(!hv || !hu) return;
+  f.items.forEach(it=>{ if(it.brand==='후에버'){ it.brand = '후'; touch(it); } });
+  if(!hu.carrier && hv.carrier) hu.carrier = hv.carrier;
+  f.brandCarriers = f.brandCarriers.filter(x=>x!==hv);
+  const lv = f.logistics['후에버'];
+  if(lv){ const lh = ensureFulfillmentLogistics('후'); Object.keys(lv).forEach(k=>{ if(lv[k] && !lh[k]) lh[k] = lv[k]; }); delete f.logistics['후에버']; }
+  if(f.itemFilter && f.itemFilter['후에버']!==undefined){ delete f.itemFilter['후에버']; }
   saveState();
 }
 /* ---- 품목 데이터 ---- */
@@ -3898,6 +3915,7 @@ function renderFulfillmentInboundCalc(){
 function renderFulfillmentItems(){
   applyFulfillmentSheetV1(); // 구글시트 기준 최초 1회 갱신 (이미 했으면 건너뜀)
   mergeVslIntoVsl3(); // VSL → VSL3 합치기 (1회)
+  mergeHueverIntoHu(); // 후에버 → 후 정리 (1회)
   const f = ensureFulfillment();
   const brands = fulfillmentBrandList();
   // 사용 꺼진 품목은 맨 아래로(기존 순서는 유지)
