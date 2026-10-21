@@ -1265,6 +1265,22 @@ function handleRemoteStateUpdate(rawRemoteState){
   const serverFulfillment = remoteState.fulfillment || {};
 
   if(localEdit > serverEdit){
+    /* 안전장치: 이 브라우저의 어떤 영역(광고·매출 등)이 텅 비어 있는데 서버에는 그 영역의 내용이 있다면,
+       "로컬이 더 최신"이라는 이유로 빈 영역을 지키지 않고 서버의 내용을 받아온다. */
+    (function(){
+      const has = (v)=>{
+        if(Array.isArray(v)) return v.length>0;
+        if(v && typeof v==='object') return Object.keys(v).some(k=>has(v[k]));
+        if(typeof v==='string') return v!=='';
+        if(typeof v==='number') return true;
+        return false;
+      };
+      const skip = {promotion:1, live:1, fulfillment:1, deletedIds:1, __lastLocalEdit:1};
+      Object.keys(remoteState).forEach(k=>{
+        if(skip[k]) return;
+        if(has(remoteState[k]) && !has(state[k])) state[k] = remoteState[k];
+      });
+    })();
     // 로컬이 서버보다 최신이면 절대로 로컬을 통째로 서버 걸로 바꾸지 않는다. 제안·선정·셋팅·라이브·풀필먼트만
     // 항목 단위로 합치고, 나머지(광고비 충전 내역, 스마트스토어 매출 등)는 전부 로컬 그대로 유지한다.
     const localDeleted = ensureDeletedIds();
@@ -9773,7 +9789,7 @@ try{
   if(getAccessCode()){
     // 새로고침 직전에 저장이 서버까지 못 갔을 수 있으니, 서버에서 받아오기 전에
     // 지금 이 브라우저에 있는 내용을 한 번 먼저 밀어넣어 둔다(그래야 그다음 받아올 때 안전하게 합쳐짐).
-    pushToServer().catch(()=>{}).finally(()=>{ loadFromServer(false); });
+    loadFromServer(false); // (예전에는 여기서 먼저 올렸지만, 비어 있는 브라우저가 서버를 지우는 사고가 나서 받아오기만 한다)
   }
   // 60초마다 서버 데이터를 자동으로 확인 (입력 중일 때는 건너뜀)
   setInterval(()=>{
