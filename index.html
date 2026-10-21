@@ -811,6 +811,10 @@ function defaultState(){
   };
 }
 
+/* 안전장치: 이 브라우저에 저장된 데이터가 전혀 없는 상태(새 브라우저·시크릿 창·저장소 삭제 직후)로 시작했다면,
+   서버 데이터를 한 번 받아오기 전까지는 절대 서버로 올리지 않고, 처음 받은 서버 데이터를 그대로 기준으로 삼는다.
+   (빈 화면이 서버의 실제 데이터를 덮어쓰는 사고 방지) */
+let freshLocalBoot = (function(){ try{ return !localStorage.getItem('naver_ad_budget_v1'); }catch(e){ return false; } })();
 let state = loadState();
 /* Firebase는 빈 배열([])을 저장하면 그 항목 자체를 통째로 없애버리는 특성이 있어서,
    나중에 다시 받아올 때 그 자리가 배열이 아니라 아예 없는 값(undefined)으로 와버리는 문제가 있다.
@@ -1220,6 +1224,18 @@ function decodeFirebaseKeys(obj){
 }
 function handleRemoteStateUpdate(rawRemoteState){
   const remoteState = rawRemoteState ? decodeFirebaseKeys(rawRemoteState) : rawRemoteState;
+  if(freshLocalBoot){
+    freshLocalBoot = false;
+    if(remoteState){
+      clearTimeout(pushTimer); pendingLocalPush = false;
+      state = Object.assign(defaultState(), remoteState);
+      sanitizeStateArrays();
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
+      syncStatus = {state:'ok', lastSync: new Date().toISOString(), message:''};
+      render();
+      return;
+    }
+  }
   if(pendingLocalPush){ updateSyncBadge(); return; } // 아직 못 올린 로컬 변경사항이 있으면 섣불리 덮어쓰지 않는다
   if(!remoteState){
     // Firebase에 아직 아무 데이터도 없는 최초 상태 → 지금 로컬 내용을 그대로 올려보낸다
@@ -1310,6 +1326,7 @@ async function loadFromServer(showAlertOnFail){
 }
 function scheduleServerPush(){
   if(!getFirebaseConfig()) return;
+  if(freshLocalBoot) return; // 서버 데이터를 처음 받아오기 전에는 빈 로컬 상태를 올리지 않는다
   pendingLocalPush = true;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(pushToServer, 250);
