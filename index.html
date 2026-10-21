@@ -623,6 +623,7 @@
 .btn.cp-done{background:#12A150}
 .cp-charge{border-color:#E8590C !important;background:#FFF1E6 !important}
 .cp-charge::placeholder{color:#c9a58c}
+.cp-charge.cp-auto{color:#9A6B48}
 .cp-input{background:#FFF8E1 !important;border:1.5px solid #F0B429 !important;border-radius:6px;padding:6px 8px}
 .cp-input:focus{background:#fff !important;border-color:#E8590C !important;outline:none}
 </style>
@@ -9186,6 +9187,12 @@ function chargePlanNeed(r){
   if(!avg) return null;
   return Math.max(0, Math.round(avg*days - bal));
 }
+/* 충전할 금액 기본값: 충전필요 금액을 10만원 단위로 올림 (예: 183,750 → 200,000). 직접 입력한 값이 있으면 그 값이 우선 */
+function chargeRoundUp(need){ return need>0 ? Math.ceil(need/100000)*100000 : 0; }
+function chargeAmountOf(r){
+  const custom = Number((ensureChargePlan().rows[chargePlanRowId(r)]||{}).charge)||0;
+  return custom>0 ? custom : chargeRoundUp(chargePlanNeed(r));
+}
 function updateChargePlanDate(field, value){
   ensureChargePlan()[field] = value;
   saveState(); render();
@@ -9196,6 +9203,11 @@ function updateChargePlanRow(rid, field, value, inputEl){
   const n = String(value).replace(/[^0-9]/g,'');
   p.rows[rid][field] = n;
   if(inputEl) inputEl.value = n ? Number(n).toLocaleString('ko-KR') : '';
+  if(inputEl && field==='charge'){   // 직접 입력 → 일반 표시 / 비움 → 자동(10만원 올림) 값으로 복귀
+    const rr = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
+    if(n) inputEl.classList.remove('cp-auto');
+    else if(rr && rr.adType!=='bizwallet'){ const a = chargeRoundUp(chargePlanNeed(rr)); inputEl.value = a>0 ? a.toLocaleString('ko-KR') : ''; if(a>0) inputEl.classList.add('cp-auto'); }
+  }
   saveState();
   // 입력 중 포커스가 풀리지 않게 전체 render 대신 이 행의 충전필요 금액만 갱신
   const r = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
@@ -9204,6 +9216,11 @@ function updateChargePlanRow(rid, field, value, inputEl){
   if(r){ const se = document.getElementById('cpSub_'+r.adType); if(se) se.textContent = '충전필요 '+formatWon(chargePlanRows().filter(x=>x.adType===r.adType).reduce((a,x)=>a+(chargePlanNeed(x)||0),0)); }
   const totalEl = document.getElementById('cpTotal');
   if(totalEl) totalEl.textContent = formatWon(chargePlanRows().reduce((s,x)=>s+(chargePlanNeed(x)||0),0));
+  // 직접 입력한 충전할 금액이 없으면, 바뀐 충전필요 금액에 맞춰 자동(10만원 올림) 값도 갱신
+  if(r && r.adType!=='bizwallet' && field!=='charge'){
+    const ci = document.getElementById('cpChg_'+rid.replace(/[^0-9A-Za-z가-힣]/g,'_'));
+    if(ci && !Number((p.rows[rid]||{}).charge)){ const a = chargeRoundUp(chargePlanNeed(r)); ci.value = a>0 ? a.toLocaleString('ko-KR') : ''; ci.classList.add('cp-auto'); }
+  }
 }
 function addChargeRow(rid){
   const p = ensureChargePlan();
@@ -9213,8 +9230,8 @@ function addChargeRow(rid){
   const need = chargePlanNeed(r);
   const custom = Number((p.rows[rid]||{}).charge)||0;
   if(!(custom>0) && chargePlanDays()===null && r.adType!=='bizwallet'){ alert('다음 충전 날짜를 오늘 이후 날짜로 먼저 입력해주세요.'); return; }
-  const amount = custom>0 ? custom : need;
-  if(!(amount>0)){ alert('충전할 금액을 입력해주세요. (비워두면 충전필요 금액으로 등록돼요)'); return; }
+  const amount = custom>0 ? custom : chargeRoundUp(need);
+  if(!(amount>0)){ alert('충전할 금액을 입력해주세요. (비워두면 충전필요 금액을 10만원 단위로 올림해서 등록돼요)'); return; }
   const cfg = getAdTypeConfig(r.adType);
   if(cfg.isCycle){
     const cur = ensureBrgeomCurrentAll();
@@ -9496,7 +9513,7 @@ function renderChargeAll(){
                   <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.balance)}" onchange="updateChargePlanRow('${q}','balance',this.value,this)"></td>
                   <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.avg)}" onchange="updateChargePlanRow('${q}','avg',this.value,this)"></td>
                   <td class="mono" style="text-align:center" id="cpNeed_${cid}">${need===null ? '<span style="color:var(--text-secondary)">-</span>' : (need>0 ? `<b>${formatWon(need)}</b>` : '<span style="color:var(--text-secondary)">충전 불필요</span>')}</td>
-                  <td style="text-align:center"><input class="sheet-input cp-input cp-charge" inputmode="numeric" placeholder="${need>0?need.toLocaleString('ko-KR'):'직접 입력'}" value="${fmt(v.charge)}" onchange="updateChargePlanRow('${q}','charge',this.value,this)"></td>
+                  <td style="text-align:center"><input id="cpChg_${cid}" class="sheet-input cp-input cp-charge${(!Number(v.charge) && need>0)?' cp-auto':''}" inputmode="numeric" placeholder="직접 입력" title="비워두면 충전필요 금액을 10만원 단위로 올림한 금액이에요. 직접 입력하면 그 금액으로 등록돼요" value="${Number(v.charge)>0 ? fmt(v.charge) : (need>0 ? chargeRoundUp(need).toLocaleString('ko-KR') : '')}" onchange="updateChargePlanRow('${q}','charge',this.value,this)"></td>
                   <td><button class="btn" style="padding:4px 10px" onclick="addChargeRow('${q}')">추가</button></td>
                 </tr>`;
               }).join('')}
@@ -9505,7 +9522,7 @@ function renderChargeAll(){
         </div>`}
       </div>`;
     }).join('')}
-    <div class="helptext">'잔액·소진 불러오기'는 나스 '광고비 충전 체크'의 잔액과 최근 3일(오늘 제외) 일평균 소진을 가져와요(비즈월렛은 잔액만, 브검·에델코첸 등 나스에 없는 항목은 그대로). 각 행의 '추가'를 누르면 '충전할 금액'(비워두면 충전필요 금액)이 위 '오늘 날짜'로 해당 광고 탭(GFA·쇼검·스스광고·비즈월렛은 충전 내역, 브검은 PC 시작일/충전금액)에 등록되고, 충전기안에 바로 나타나요. 광고명을 누르면 접고 펼 수 있어요.</div>
+    <div class="helptext">'잔액·소진 불러오기'는 나스 '광고비 충전 체크'의 잔액과 최근 3일(오늘 제외) 일평균 소진을 가져와요(비즈월렛은 잔액만, 브검·에델코첸 등 나스에 없는 항목은 그대로). 각 행의 '추가'를 누르면 '충전할 금액'(기본은 충전필요 금액을 10만원 단위로 올림한 금액, 직접 입력하면 그 금액)이 위 '오늘 날짜'로 해당 광고 탭(GFA·쇼검·스스광고·비즈월렛은 충전 내역, 브검은 PC 시작일/충전금액)에 등록되고, 충전기안에 바로 나타나요. 광고명을 누르면 접고 펼 수 있어요.</div>
   `;
 }
 
