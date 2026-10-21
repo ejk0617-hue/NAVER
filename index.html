@@ -3763,7 +3763,21 @@ const LOTTE_TPL_NOTICE_B64 = 'UEsDBBQAAAAIAAp3VV0LY5msagEAADgFAAATAAAAW0NvbnRlbn
 function inboundCarrierKind(brand){ const c = fulfillmentCarrierOf(brand)||''; if(/cj/i.test(c)) return 'cj'; if(/롯데/.test(c)) return 'lotte'; return ''; }
 function isCjBrand(brand){ return inboundCarrierKind(brand)==='cj'; }
 function xmlEsc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-function inboundCalcOf(it){ return calcInbound(it.avgOutbound, it.baseDate, it.currentStock, it.packQty); }
+/* 입고수량: 자동 계산값. 수기로 고친 값(inbManual)이 있으면 그 값을 쓰고, 박스 수는 입고수량 ÷ 입수량으로 다시 계산한다 */
+function inboundCalcOf(it){
+  const auto = calcInbound(it.avgOutbound, it.baseDate, it.currentStock, it.packQty);
+  if(it.inbManual===undefined || it.inbManual===null || it.inbManual==='') return auto;
+  const ea = Number(it.inbManual); const po = Number(it.packQty);
+  if(isNaN(ea) || ea<0) return auto;
+  return {ea, box: po>0 ? Math.round(ea/po*100)/100 : null, manual:true};
+}
+function setInboundManual(id, val){
+  const f = ensureFulfillment(); const it = f.items.find(x=>x.id===id); if(!it) return;
+  val = String(val).trim();
+  if(val===''){ delete it.inbManual; }
+  else { const n = Math.round(Number(val)); if(isNaN(n) || n<0){ alert('0 이상의 숫자를 입력해주세요.'); return; } it.inbManual = n; }
+  touch(it); saveState(); render();
+}
 function toggleInboundConfirm(id){
   __inbDl = {}; __inbMsg = '';
   const f = ensureFulfillment();
@@ -3792,7 +3806,7 @@ function setInboundType(v){ ensureFulfillment().inboundType = v; saveState(); }
 function cjConfirmedGroups(){
   const f = ensureFulfillment(); const map = {}; const order = []; let other = 0;
   f.items.forEach(it=>{
-    if(!it.inbConfirm) return;
+    if(!it.inbConfirm || it.active===false) return;
     const kind = inboundCarrierKind(it.brand);
     if(!kind){ other++; return; }
     if(!map[it.brand]){ map[it.brand] = {brand:it.brand, carrier:kind, items:[]}; order.push(it.brand); }
@@ -3893,7 +3907,7 @@ function buildLotteRegBlob(group){
   const now = new Date(); const serial = Math.floor((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate()) - Date.UTC(1899,11,30))/86400000);
   group.items.forEach((g,i)=>{
     const r = i+2, it = g.it, code = String(it.itemCode||'').trim();
-    ws['A'+r] = {t:'n', v:serial, z:'m/d/yyyy'};
+    ws['A'+r] = {t:'n', v:serial, z:'yyyy-mm-dd'};
     ws['E'+r] = /^[1-9]\d{0,14}$/.test(code) ? {t:'n', v:Number(code)} : {t:'s', v:code};
     ws['F'+r] = {t:'s', v:it.itemName||''};
     ws['G'+r] = {t:'n', v:Number(g.ea)};
@@ -4068,14 +4082,15 @@ function renderFulfillmentSoldoutBar(){
 }
 function renderFulfillmentInboundCalc(){
   const f = ensureFulfillment();
-  const visibleItems = f.items.filter(it=> !it.brand || isFulfillmentBrandVisible(it.brand));
+  // 품목 데이터에서 '사용'을 끈 품목은 입고량 계산에 나오지 않는다
+  const visibleItems = f.items.filter(it=> it.active!==false && (!it.brand || isFulfillmentBrandVisible(it.brand)));
 
   let totalEA = 0, totalBox = 0;
   const rows = visibleItems.map(it=>{
-    const {ea, box} = calcInbound(it.avgOutbound, it.baseDate, it.currentStock, it.packQty);
+    const {ea, box, manual} = inboundCalcOf(it);
     if(ea!==null) totalEA += ea;
     if(box!==null) totalBox += box;
-    return {it, ea, box};
+    return {it, ea, box, manual};
   });
   // 입고가 필요한 품목(입고수량 > 0)을 위로, 입고수량 많은 순. 나머지는 원래 순서 유지
   rows.sort((a,b)=> (b.ea||0) - (a.ea||0));
@@ -4135,7 +4150,7 @@ function renderFulfillmentInboundCalc(){
           <th class="num">현재고</th><th class="num" title="1일 평균 출고량">평균출고량(일)</th><th class="num">기준일</th><th class="num">입고수량(EA)</th><th class="num">입고수(BOX)</th><th class="no-copy" style="text-align:center">확정</th>
         </tr></thead>
         <tbody>
-          ${rows.map(({it,ea,box})=>{ const dl = fulfillmentDaysLeft(it); const soon = dl!==null && dl<7; return `
+          ${rows.map(({it,ea,box,manual})=>{ const dl = fulfillmentDaysLeft(it); const soon = dl!==null && dl<7; return `
             <tr style="${soon?'background:#FDECF0':''}" ${soon?`title="출고 가능 ${dl.toFixed(1)}일 — 품절 임박"`:''}>
               <td>${it.brand||'-'}</td>
               <td>${it.itemCode||'-'}</td>
@@ -4145,8 +4160,8 @@ function renderFulfillmentInboundCalc(){
               <td class="num"><input class="row-input" type="number" value="${it.currentStock||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','currentStock',this.value)"></td>
               <td class="num"><input class="row-input" type="number" value="${it.avgOutbound||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','avgOutbound',this.value)"></td>
               <td class="num"><input class="row-input" type="number" value="${it.baseDate||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','baseDate',this.value)"></td>
-              <td class="num mono" style="font-weight:700">${ea===null?'-':ea.toLocaleString('ko-KR')}</td>
-              <td class="num mono" style="font-weight:700">${box===null?'-':box.toLocaleString('ko-KR')}</td>
+              <td class="num"><input class="row-input" type="number" min="0" value="${ea===null?'':ea}" placeholder="-" ${manual?'title="수기로 입력한 값이에요. 칸을 비우면 자동 계산으로 돌아가요" style="font-weight:700;background:#FFF8DC"':'title="자동 계산값이에요. 직접 고치면 그 값으로 바뀌고 박스 수도 따라 바뀌어요" style="font-weight:700"'} onchange="setInboundManual('${it.id}',this.value)"></td>
+              <td class="num mono" style="font-weight:700" ${box!==null && !Number.isInteger(box)?'title="입수량으로 나누어떨어지지 않아요"':''}>${box===null?'-':box.toLocaleString('ko-KR')}</td>
               <td class="no-copy" style="text-align:center">${(()=>{
                 const c = it.inbConfirm;
                 if(c){ const changed = (ea!==c.ea || box!==c.box);
@@ -4168,7 +4183,7 @@ function renderFulfillmentInboundCalc(){
           </tr>
         </tfoot>
       </table>`}
-      <div class="helptext">필요수량 = 평균출고량 × 기준일 − 현재고 → 이 값을 입수량으로 나눈 뒤 <b>0.5 이상은 올리고 0.5 미만은 내려서</b> 박스 수를 정하고, <b>입고수량(EA) = 박스 수 × 입수량</b>으로 계산해서 항상 박스 단위로 딱 맞아떨어져요. (필요수량이 0 이하면 입고수량도 0) · 표는 <b>입고수량이 많은 순</b>으로 정렬되고, 입고가 필요 없는 품목은 맨 아래에 있어요.</div>
+      <div class="helptext">필요수량 = 평균출고량 × 기준일 − 현재고 → 이 값을 입수량으로 나눈 뒤 <b>0.5 이상은 올리고 0.5 미만은 내려서</b> 박스 수를 정하고, <b>입고수량(EA) = 박스 수 × 입수량</b>으로 계산해서 항상 박스 단위로 딱 맞아떨어져요. (필요수량이 0 이하면 입고수량도 0) · 입고수량 칸은 <b>직접 고칠 수 있어요</b>(노란 칸 = 수기 입력, 비우면 자동 계산). 고치면 입고수(BOX)는 입고수량 ÷ 입수량으로 바뀌어요. · 표는 <b>입고수량이 많은 순</b>으로 정렬되고, 입고가 필요 없는 품목은 맨 아래에 있어요.</div>
     </div>
 
     ${renderInboundConfirmPanel()}
