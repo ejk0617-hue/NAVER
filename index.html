@@ -8785,18 +8785,37 @@ function setChargeNextOffset(n){
 
 /* ---- 충전 탭: 나스 '광고비 충전 체크' 페이지의 잔액·소진 데이터 불러오기 (읽기 전용) ---- */
 const CHARGE_SYNC_BASE = 'https://intriholdings.synology.me/marketing_ad/';
-const CHARGE_SYNC_SHOGEOM = { best3327:1749323, yocyoc:1724570, yocyocwb:1749394 };
+const CHARGE_SYNC_SHOGEOM = {
+  'best3327':{bal:['best3327'], ids:[1749323]},
+  'yocyoc':{bal:['yocyoc'], ids:[1724570]},
+  'yocyocwb':{bal:['yocyocwb'], ids:[1749394]},
+  '로트벡쉔 · 검색':{bal:['로트벡쉔 · 검색'], ids:[2031417]},
+  '게이트맨·아사아블로이 · 검색+성과형':{bal:['게이트맨·아사아블로이 · 검색+성과형'], ids:[1293956]},
+};
 const CHARGE_SYNC_GFA = {
   'VSL':{bal:['VSL · 성과형'], ids:[1745305]},
   '갸스비':{bal:['갸스비 · 성과형'], ids:[61847]},
   '로버츠베리에':{bal:['로버츠베리에 · 성과형'], ids:[923438]},
+  '로트벡쉔':{bal:['로트벡쉔 · 성과형'], ids:[2037715]},
   '오스템/자이스':{bal:['자이스 · 성과형','오스템와픽 · 성과형'], ids:[2402439,1705067]},
   '리틀타익스':{bal:['리틀타익스·마조렛 · 성과형'], ids:[2405316]},
   '클레보스':{bal:['클레보스 · 성과형'], ids:[2402029]},
 };
-const CHARGE_SYNC_ALIAS_SEOSEA = { 'VSL3':'VSL#3', '오스템와픽':'오스템', '라움':'라움365' };
-const CHARGE_SYNC_ALIAS_BIZ = { 'VSL3':'VSL#3', '네이쳐스패밀리':'네이처스패밀리' };
-const CHARGE_SYNC_HOLD = ['게이트맨','아사아블로이']; // 나스 페이지에서 충전 보류 처리된 스마트광고
+/* 나스에는 있는데 앱 목록에 없던 계정 — 처음 한 번만 앱 목록에 추가해서 같이 연동한다(나중에 지워도 다시 안 생김) */
+const CHARGE_SYNC_EXTRAS = [
+  {flag:'shogeom_로트벡쉔검색', list:'shogeom', item:{id:'로트벡쉔 · 검색', biz:'', brands:'로트벡쉔'}},
+  {flag:'shogeom_게이트맨아사', list:'shogeom', item:{id:'게이트맨·아사아블로이 · 검색+성과형', biz:'', brands:'게이트맨, 아사아블로이'}},
+  {flag:'gfa_로트벡쉔', list:'gfa', item:{id:'로트벡쉔', account:'로트벡쉔 · 성과형'}},
+  {flag:'bizwallet_오스템', list:'bizwallet', item:'오스템'},
+];
+const CHARGE_SYNC_ALIAS = { 'VSL3':'VSL#3', '오스템와픽':'오스템', '라움':'라움365', '네이쳐스패밀리':'네이처스패밀리' };
+const CHARGE_SYNC_HOLD = ['게이트맨','아사아블로이']; // 나스 페이지에서 충전 보류 처리된 스마트광고 → 잔액만 가져옴
+function chargeSyncNorm(x){ return String(x||'').replace(/[#\s]/g,'').replace(/쳐/g,'처'); }
+function chargeSyncFindKey(obj, wanted){ // 이름 표기가 조금 달라도(#, 공백, 쳐/처) 같은 항목을 찾는다
+  if(obj[wanted]!==undefined) return wanted;
+  const w = chargeSyncNorm(wanted);
+  return Object.keys(obj).find(k=>chargeSyncNorm(k)===w) || null;
+}
 function chargeSyncAvg3(series){
   if(!series) return null;
   const today = todayStr();
@@ -8817,26 +8836,49 @@ async function syncChargeFromServer(){
       return r.json();
     };
     const [bal, daily, plan] = await Promise.all([get('ad_balances'), get('account_daily'), get('charge_plan').catch(()=>({}))]);
+    // 0) 앱에 없던 나스 계정 추가(최초 1회)
+    if(!p.addedExtras || typeof p.addedExtras!=='object') p.addedExtras = {};
+    const lists = ensureAdBrandLists(); const addedNames = [];
+    CHARGE_SYNC_EXTRAS.forEach(ex=>{
+      if(p.addedExtras[ex.flag]) return;
+      p.addedExtras[ex.flag] = true;
+      const arr = lists[ex.list];
+      const id = typeof ex.item==='string' ? ex.item : ex.item.id;
+      if(arr.some(x=>(typeof x==='string'?x:x.id)===id)) return;
+      arr.push(typeof ex.item==='string' ? ex.item : Object.assign({}, ex.item));
+      addedNames.push(id);
+    });
     let updated = 0; const missing = [];
     chargePlanRows().forEach(r=>{
       if(r.adType==='brgeom') return;
-      let balNames = [], ids = [], burnWanted = true;
-      if(r.adType==='shogeom' && CHARGE_SYNC_SHOGEOM[r.key]){ balNames=[r.key]; ids=[CHARGE_SYNC_SHOGEOM[r.key]]; }
-      else if(r.adType==='gfa' && CHARGE_SYNC_GFA[r.key]){ balNames=CHARGE_SYNC_GFA[r.key].bal; ids=CHARGE_SYNC_GFA[r.key].ids; }
-      else if(r.adType==='seosea' && !CHARGE_SYNC_HOLD.includes(r.key)){
-        const nm = CHARGE_SYNC_ALIAS_SEOSEA[r.key] || r.key;
-        balNames=[nm+' · 스마트광고']; ids=['smart_'+nm];
-      }
-      else if(r.adType==='bizwallet'){
-        const nm = CHARGE_SYNC_ALIAS_BIZ[r.key] || r.key;
-        balNames=[nm+' · 비즈월렛']; ids=[]; // 비즈월렛은 소진 개념이 없어 잔액만
+      let balNames = [], ids = [], withBurn = true;
+      if(r.adType==='shogeom'){
+        const m = CHARGE_SYNC_SHOGEOM[r.key];
+        if(m){ balNames=m.bal; ids=m.ids; }
+        else { const k = chargeSyncFindKey(bal, r.key); if(k) balNames=[k]; }
+      } else if(r.adType==='gfa'){
+        const m = CHARGE_SYNC_GFA[r.key];
+        if(m){ balNames=m.bal; ids=m.ids; }
+        else { const k = chargeSyncFindKey(bal, r.key+' · 성과형'); if(k) balNames=[k]; }
+      } else if(r.adType==='seosea'){
+        const nm = CHARGE_SYNC_ALIAS[r.key] || r.key;
+        const k = chargeSyncFindKey(bal, nm+' · 스마트광고');
+        if(k) balNames=[k];
+        const dk = chargeSyncFindKey(daily, 'smart_'+nm);
+        if(dk) ids=[dk];
+        if(CHARGE_SYNC_HOLD.includes(r.key)) withBurn = false;
+      } else if(r.adType==='bizwallet'){
+        const nm = CHARGE_SYNC_ALIAS[r.key] || r.key;
+        const k = chargeSyncFindKey(bal, nm+' · 비즈월렛');
+        if(k) balNames=[k];
+        withBurn = false; // 비즈월렛은 소진 개념이 없어 잔액만
       }
       const found = balNames.filter(n=>bal[n] && bal[n].amt!=null);
       if(!found.length){ missing.push(r.adName+'/'+r.key); return; }
       const rid = chargePlanRowId(r);
       if(!p.rows[rid]) p.rows[rid] = {};
       p.rows[rid].balance = String(Math.max(0, Math.round(found.reduce((t,n)=>t+(Number(bal[n].amt)||0),0))));
-      if(ids.length){
+      if(withBurn && ids.length){
         let sum = 0, any = false;
         ids.forEach(id=>{ const a = chargeSyncAvg3(daily[String(id)]); if(a!==null){ sum+=a; any=true; } });
         p.rows[rid].avg = any && sum>0 ? String(Math.round(sum)) : '';
@@ -8845,7 +8887,9 @@ async function syncChargeFromServer(){
     });
     if(plan && plan.date) p.nextDate = plan.date;
     const now = new Date();
-    p.lastSync = `${todayStr()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} · ${updated}개 항목 갱신` + (missing.length?` · 나스 데이터 없음 ${missing.length}개 (${missing.join(', ')})`:'');
+    p.lastSync = `${todayStr()} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} · ${updated}개 항목 갱신`
+      + (addedNames.length?` · 새로 추가 ${addedNames.join(', ')}`:'')
+      + (missing.length?` · 나스에 없음 ${missing.length}개 (${missing.join(', ')})`:'');
     saveState(); render();
   }catch(e){
     if(btn){ btn.disabled = false; btn.textContent = '잔액·소진 불러오기'; }
