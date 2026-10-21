@@ -816,6 +816,20 @@ function defaultState(){
    (빈 화면이 서버의 실제 데이터를 덮어쓰는 사고 방지) */
 let freshLocalBoot = (function(){ try{ return !localStorage.getItem('naver_ad_budget_v1'); }catch(e){ return false; } })();
 let state = loadState();
+/* 브라우저에 저장된 내용이 있어도, 실제 업무 데이터가 하나도 없는 "빈 상태"라면(예: 빈 상태로 한 번 열렸다가 저장된 경우)
+   서버 데이터보다 최신이라고 우기지 못하게, 처음 한 번은 서버 내용을 그대로 받아오도록 한다. */
+(function(){
+  try{
+    const n = (v)=> Array.isArray(v) ? v.length : 0;
+    const blank = !(
+      n(state.gfa&&state.gfa.charges) || n(state.bizwallet&&state.bizwallet.charges) || n(state.seosea&&state.seosea.charges) ||
+      n(state.shogeom&&state.shogeom.charges) || n(state.smartstore&&state.smartstore.daily) ||
+      n(state.promotion&&state.promotion.selections) || n(state.promotion&&state.promotion.proposals) ||
+      n(state.live&&state.live.schedule) || n(state.fulfillment&&state.fulfillment.items) || n(state.draftEntries)
+    );
+    if(blank) freshLocalBoot = true;
+  }catch(e){}
+})();
 /* Firebase는 빈 배열([])을 저장하면 그 항목 자체를 통째로 없애버리는 특성이 있어서,
    나중에 다시 받아올 때 그 자리가 배열이 아니라 아예 없는 값(undefined)으로 와버리는 문제가 있다.
    그래서 어떤 경로로 상태가 갱신되든(로컬 로드, Firebase에서 받아온 직후) 한 번씩 이 함수로
