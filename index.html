@@ -8592,20 +8592,31 @@ function copyCellValue(text, cellEl){
 }
 
 /* 오늘 날짜 기준으로 해당 항목의 충전 내역(들)을 합산해서 반환. 없으면 null */
+/* 브검 충전기안 항목이 가리키는 브랜드 키들: 계정칸이 브랜드명이면 그것, 아니면 스토어칸의 브랜드명(쉼표로 여러 개 가능)으로 찾는다 */
+function brgeomKeysForEntry(entry){
+  const ids = brgeomBrandsList().map(i=>i.id);
+  const keys = [];
+  const add = k => { k = String(k||'').trim(); if(k && ids.includes(k) && !keys.includes(k)) keys.push(k); };
+  add(entry.accountKey);
+  String(entry.store||'').split(/[,，·\/]/).forEach(add);
+  return keys;
+}
 function getTodayChargeSum(entry){
   const cfg = getAdTypeConfig(entry.adType);
   const today = todayStr();
   if(cfg.isCycle){
-    const c = ensureBrgeomCurrentAll()[entry.accountKey];
     let amount = 0, count = 0;
-    if(c && c.draftHidden===today) return null; // 충전기안에서 삭제한 항목
-    if(c && c.chargedDate===today){ // 충전 탭의 '충전' 버튼을 누른 경우: MO+PC 가격 합계
-      if(Number(c.pcAmount||0)>0){ amount += Number(c.pcAmount); count++; }
-      if(Number(c.mobileAmount||0)>0){ amount += Number(c.mobileAmount); count++; }
-    } else if(c){
-      if(c.pcStart && c.pcStart===today){ amount += Number(c.pcAmount||0); count++; }
-      if(c.mobileStart && c.mobileStart===today){ amount += Number(c.mobileAmount||0); count++; }
-    }
+    brgeomKeysForEntry(entry).forEach(key=>{
+      const c = ensureBrgeomCurrentAll()[key];
+      if(!c || c.draftHidden===today) return;
+      if(c.chargedDate===today){ // 충전 탭의 '충전' 버튼을 누른 경우: MO+PC 가격
+        if(Number(c.pcAmount||0)>0){ amount += Number(c.pcAmount); count++; }
+        if(Number(c.mobileAmount||0)>0){ amount += Number(c.mobileAmount); count++; }
+      } else {
+        if(c.pcStart && c.pcStart===today){ amount += Number(c.pcAmount||0); count++; }
+        if(c.mobileStart && c.mobileStart===today){ amount += Number(c.mobileAmount||0); count++; }
+      }
+    });
     if(count===0) return null;
     return {amount, count};
   }
@@ -8968,8 +8979,10 @@ function removeTodayDraftCharge(entryId){
   if(!confirm(`${cfg.label} · ${entry.accountKey}\n오늘 충전 내역 ${info.count}건(${formatWon(info.amount)})을 삭제할까요?`)) return;
   const today = todayStr();
   if(cfg.isCycle){
-    const c = ensureBrgeomCurrentAll()[entry.accountKey];
-    if(c){ c.chargedDate = ''; c.draftHidden = today; }
+    brgeomKeysForEntry(entry).forEach(key=>{
+      const c = ensureBrgeomCurrentAll()[key];
+      if(c){ c.chargedDate = ''; c.draftHidden = today; }
+    });
   } else {
     state[cfg.chargeSection].charges = state[cfg.chargeSection].charges.filter(c=>!(c[cfg.keyField]===entry.accountKey && c.date===today));
   }
