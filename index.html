@@ -621,6 +621,7 @@
 .cp-table th{font-size:12px}
 .cp-date-mini{font-size:12px;padding:5px 6px;border:1.5px solid #F0B429;background:#FFF8E1;border-radius:6px;font-family:inherit}
 .btn.cp-done{background:#12A150}
+.btn.cp-added{background:#F08C00;white-space:nowrap;opacity:1;cursor:default}
 .cp-charge{border-color:#E8590C !important;background:#FFF1E6 !important}
 .cp-charge::placeholder{color:#c9a58c}
 .cp-charge.cp-auto{color:#9A6B48}
@@ -9202,7 +9203,7 @@ function updateChargePlanRow(rid, field, value, inputEl){
   if(!p.rows[rid]) p.rows[rid] = {};
   const n = String(value).replace(/[^0-9]/g,'');
   p.rows[rid][field] = n;
-  if(p.rows[rid].done){ p.rows[rid].done = ''; const ab = document.getElementById('cpAdd_'+rid.replace(/[^0-9A-Za-z가-힣]/g,'_')); if(ab){ ab.disabled = false; ab.textContent = '추가'; ab.classList.remove('cp-done'); ab.removeAttribute('title'); } }
+  if(p.rows[rid].done){ p.rows[rid].done = ''; const ab = document.getElementById('cpAdd_'+rid.replace(/[^0-9A-Za-z가-힣]/g,'_')); if(ab){ ab.disabled = false; ab.textContent = '추가'; ab.classList.remove('cp-added'); ab.removeAttribute('title'); } }
   if(inputEl) inputEl.value = n ? Number(n).toLocaleString('ko-KR') : '';
   if(inputEl && field==='charge'){   // 직접 입력 → 일반 표시 / 비움 → 자동(10만원 올림) 값으로 복귀
     const rr = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
@@ -9226,7 +9227,7 @@ function updateChargePlanRow(rid, field, value, inputEl){
 function chargeRowDone(rid){ const p = ensureChargePlan(); return !!(p.rows[rid] && p.rows[rid].done && p.rows[rid].done===(p.today||todayStr())); }
 function chargeAddBtn(rid,cid,q){
   const done = chargeRowDone(rid);
-  return `<button id="cpAdd_${cid}" class="btn ${done?'cp-done':''}" style="padding:4px 10px" ${done?'disabled title="이미 추가했어요. 금액·잔액·소진을 바꾸면 다시 추가할 수 있어요"':''} onclick="addChargeRow('${q}')">${done?'✓ 완료':'추가'}</button>`;
+  return `<button id="cpAdd_${cid}" class="btn ${done?'cp-added':''}" style="padding:4px 12px;white-space:nowrap" ${done?'disabled title="이미 추가했어요. 금액·잔액·소진을 바꾸면 다시 추가할 수 있어요"':''} onclick="addChargeRow('${q}')">${done?'✓ 완료':'추가'}</button>`;
 }
 function addChargeRow(rid){
   const p = ensureChargePlan();
@@ -9499,9 +9500,9 @@ function renderChargeAll(){
         <div class="cp-group-body">
           <table class="cp-table">
             ${g.type==='bizwallet' ? `
-            <colgroup><col style="width:170px"><col style="width:140px"><col style="width:150px"><col style="width:70px"></colgroup>
+            <colgroup><col style="width:170px"><col style="width:140px"><col style="width:150px"><col style="width:96px"></colgroup>
             <thead><tr><th style="text-align:left">브랜드</th><th style="text-align:center">현잔액</th><th style="text-align:center">충전할 금액</th><th></th></tr></thead>` : `
-            <colgroup><col style="width:170px"><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:150px"><col style="width:70px"></colgroup>
+            <colgroup><col style="width:170px"><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:150px"><col style="width:96px"></colgroup>
             <thead><tr><th style="text-align:left">브랜드</th><th style="text-align:center">현잔액</th><th style="text-align:center">평균 소진금액 (일)</th><th style="text-align:center">충전필요 금액</th><th style="text-align:center">충전할 금액</th><th></th></tr></thead>`}
             <tbody>
               ${rows.length===0 ? `<tr><td colspan="${g.type==='bizwallet'?4:6}" style="text-align:center;color:var(--text-secondary)">등록된 항목이 없습니다</td></tr>` : rows.map(r=>{
