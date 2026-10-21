@@ -3543,6 +3543,23 @@ async function syncFulfillmentStock(){
   }
 }
 
+/* 재고 연동 진단: 서버가 돌려주는 원본 값을 그대로 보여준다(수치가 다를 때 원인 확인용) */
+async function diagnoseStockSync(){
+  const base = getStockShareUrl();
+  const box = document.getElementById('stockDiagOut');
+  if(!base){ alert('먼저 재고 연동 주소를 저장해주세요.'); return; }
+  box.value = '불러오는 중…';
+  try{
+    const f = ensureFulfillment();
+    const its = f.items.filter(it=>it.clCode && (it.brand==='VSL3'||it.brand==='VSL'));
+    const codes = its.map(it=>String(it.clCode).trim());
+    const u = new URL(base); u.searchParams.set('view','items'); u.searchParams.set('codes', codes.join(','));
+    const r = await fetch(u.toString(), {cache:'no-store'});
+    const j = await r.json();
+    const out = {우리가_보낸_코드: its.map(it=>({품목명:it.itemName, CL코드:it.clCode, 앱에_저장된_재고:it.stockAvail, 앱에_저장된_7일출고:it.out7})), 서버_응답: j};
+    box.value = JSON.stringify(out,null,1);
+  }catch(e){ box.value = '실패: '+e.message; }
+}
 /* VSL 과 VSL3 는 같은 브랜드로 본다. 이미 있는 쪽 이름을 기준으로 맞춘다(둘 다 없으면 VSL3). */
 function normalizeFulfillmentBrand(b){
   if(b!=='VSL' && b!=='VSL3') return b;
@@ -3905,6 +3922,8 @@ function renderFulfillmentItems(){
       <div class="card" style="margin-top:8px">
         <div class="helptext" style="margin-top:0">관리부 재고 현황의 <b>stock_share.php 주소(공유키 s=… 포함)</b>를 붙여넣고 저장하세요. 이 주소는 이 컴퓨터에만 저장되고 서버로 동기화되지 않아요.</div>
         <div style="display:flex;gap:8px;margin-top:8px"><input id="stockUrlInput" class="row-input" style="text-align:left;flex:1" placeholder="https://…/stock_share.php?s=…" value="${getStockShareUrl().replace(/"/g,'&quot;')}"><button class="btn" onclick="saveStockShareUrl(document.getElementById('stockUrlInput').value)">저장</button></div>
+        <div style="margin-top:10px"><button class="btn ghost" style="color:var(--text-primary)" onclick="diagnoseStockSync()">🔍 연동 진단 (VSL3 원본 값 보기)</button></div>
+        <textarea id="stockDiagOut" readonly style="width:100%;height:160px;margin-top:8px;font-size:11px;font-family:monospace" placeholder="진단 버튼을 누르면 서버가 돌려준 원본 값이 여기에 나와요"></textarea>
       </div>
     </details>
     ${f.sheetV1Msg ? `<div class="card" style="background:#EAF6EE;border-color:#BFE3CC;padding:10px 16px;font-size:13px">✅ ${f.sheetV1Msg}<button class="copy-btn" style="float:right" onclick="ensureFulfillment().sheetV1Msg='';saveState();render()">닫기</button></div>` : ''}
