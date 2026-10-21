@@ -9202,6 +9202,7 @@ function updateChargePlanRow(rid, field, value, inputEl){
   if(!p.rows[rid]) p.rows[rid] = {};
   const n = String(value).replace(/[^0-9]/g,'');
   p.rows[rid][field] = n;
+  if(p.rows[rid].done){ p.rows[rid].done = ''; const ab = document.getElementById('cpAdd_'+rid.replace(/[^0-9A-Za-z가-힣]/g,'_')); if(ab){ ab.disabled = false; ab.textContent = '추가'; ab.classList.remove('cp-done'); ab.removeAttribute('title'); } }
   if(inputEl) inputEl.value = n ? Number(n).toLocaleString('ko-KR') : '';
   if(inputEl && field==='charge'){   // 직접 입력 → 일반 표시 / 비움 → 자동(10만원 올림) 값으로 복귀
     const rr = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
@@ -9222,11 +9223,17 @@ function updateChargePlanRow(rid, field, value, inputEl){
     if(ci && !Number((p.rows[rid]||{}).charge)){ const a = chargeRoundUp(chargePlanNeed(r)); ci.value = a>0 ? a.toLocaleString('ko-KR') : ''; ci.classList.add('cp-auto'); }
   }
 }
+function chargeRowDone(rid){ const p = ensureChargePlan(); return !!(p.rows[rid] && p.rows[rid].done && p.rows[rid].done===(p.today||todayStr())); }
+function chargeAddBtn(rid,cid,q){
+  const done = chargeRowDone(rid);
+  return `<button id="cpAdd_${cid}" class="btn ${done?'cp-done':''}" style="padding:4px 10px" ${done?'disabled title="이미 추가했어요. 금액·잔액·소진을 바꾸면 다시 추가할 수 있어요"':''} onclick="addChargeRow('${q}')">${done?'✓ 완료':'추가'}</button>`;
+}
 function addChargeRow(rid){
   const p = ensureChargePlan();
   const date = p.today || todayStr();
   const r = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
   if(!r) return;
+  if(chargeRowDone(rid)) return; // 이미 추가한 행은 중복으로 추가하지 않는다
   const need = chargePlanNeed(r);
   const custom = Number((p.rows[rid]||{}).charge)||0;
   if(!(custom>0) && chargePlanDays()===null && r.adType!=='bizwallet'){ alert('다음 충전 날짜를 오늘 이후 날짜로 먼저 입력해주세요.'); return; }
@@ -9243,7 +9250,8 @@ function addChargeRow(rid){
     ch[cfg.keyField] = r.key;
     state[cfg.chargeSection].charges.push(ch);
   }
-  if(p.rows[rid]) p.rows[rid].charge = '';
+  if(!p.rows[rid]) p.rows[rid] = {};
+  p.rows[rid].charge = ''; p.rows[rid].done = date;
   saveState(); render();
 }
 
@@ -9506,7 +9514,7 @@ function renderChargeAll(){
                   <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.key}</td>
                   <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.balance)}" onchange="updateChargePlanRow('${q}','balance',this.value,this)"></td>
                   <td style="text-align:center"><input class="sheet-input cp-input cp-charge" inputmode="numeric" placeholder="직접 입력" value="${fmt(v.charge)}" onchange="updateChargePlanRow('${q}','charge',this.value,this)"></td>
-                  <td><button class="btn" style="padding:4px 10px" onclick="addChargeRow('${q}')">추가</button></td>
+                  <td>${chargeAddBtn(rid,cid,q)}</td>
                 </tr>`;
                 return `<tr>
                   <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.brand}">${r.key}</td>
@@ -9514,7 +9522,7 @@ function renderChargeAll(){
                   <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.avg)}" onchange="updateChargePlanRow('${q}','avg',this.value,this)"></td>
                   <td class="mono" style="text-align:center" id="cpNeed_${cid}">${need===null ? '<span style="color:var(--text-secondary)">-</span>' : (need>0 ? `<b>${formatWon(need)}</b>` : '<span style="color:var(--text-secondary)">충전 불필요</span>')}</td>
                   <td style="text-align:center"><input id="cpChg_${cid}" class="sheet-input cp-input cp-charge${(!Number(v.charge) && need>0)?' cp-auto':''}" inputmode="numeric" placeholder="직접 입력" title="비워두면 충전필요 금액을 10만원 단위로 올림한 금액이에요. 직접 입력하면 그 금액으로 등록돼요" value="${Number(v.charge)>0 ? fmt(v.charge) : (need>0 ? chargeRoundUp(need).toLocaleString('ko-KR') : '')}" onchange="updateChargePlanRow('${q}','charge',this.value,this)"></td>
-                  <td><button class="btn" style="padding:4px 10px" onclick="addChargeRow('${q}')">추가</button></td>
+                  <td>${chargeAddBtn(rid,cid,q)}</td>
                 </tr>`;
               }).join('')}
             </tbody>
