@@ -3462,26 +3462,28 @@ function applyFulfillmentSheetV1(force){
   f.sheetV1Applied = true;
   const D = FULFILL_SHEET_V1;
   let upd = 0, add = 0, newBrands = [];
-  Object.keys(D.carriers).forEach(b=>{
+  Object.keys(D.carriers).forEach(b0=>{
+    const b = normalizeFulfillmentBrand(b0);
     const ex = f.brandCarriers.find(x=>x.brand===b);
-    if(ex){ if(D.carriers[b]) ex.carrier = D.carriers[b]; }
-    else { f.brandCarriers.push({id:uid(), brand:b, carrier:D.carriers[b]||''}); newBrands.push(b); }
+    if(ex){ if(D.carriers[b0]) ex.carrier = D.carriers[b0]; }
+    else { f.brandCarriers.push({id:uid(), brand:b, carrier:D.carriers[b0]||''}); newBrands.push(b); }
   });
   D.items.forEach(src=>{
     let row = null;
     if(src.itemCode) row = f.items.find(x=>String(x.itemCode||'').trim()===src.itemCode);
     if(!row && src.itemBarcode) row = f.items.find(x=>String(x.itemBarcode||'').trim()===src.itemBarcode);
     if(row){
-      row.brand = src.brand; row.itemCode = src.itemCode; row.itemBarcode = src.itemBarcode; row.itemName = src.itemName;
+      row.brand = normalizeFulfillmentBrand(src.brand); row.itemCode = src.itemCode; row.itemBarcode = src.itemBarcode; row.itemName = src.itemName;
       row.packQty = src.packQty; row.pltBoxQty = src.pltBoxQty; row.clCode = src.clCode; row.active = src.active;
       touch(row); upd++;
     } else {
-      f.items.push(touch(Object.assign({id:uid()}, src))); add++;
+      f.items.push(touch(Object.assign({id:uid()}, src, {brand:normalizeFulfillmentBrand(src.brand)}))); add++;
     }
   });
   let logiBrands = 0;
-  Object.keys(D.logistics).forEach(b=>{
-    const vals = D.logistics[b];
+  Object.keys(D.logistics).forEach(b0=>{
+    const b = normalizeFulfillmentBrand(b0);
+    const vals = D.logistics[b0];
     if(!Object.keys(vals).length) return;
     const rec = ensureFulfillmentLogistics(b);
     Object.keys(vals).forEach(k=>{ rec[k] = vals[k]; });
@@ -3539,6 +3541,42 @@ async function syncFulfillmentStock(){
     if(btn){ btn.disabled = false; btn.textContent = '재고 불러오기'; }
     alert('재고를 불러오지 못했어요.\n\n'+e.message+'\n\n주소(공유키 포함)가 맞는지, 그리고 나스가 이 앱의 접근을 허용하는지 확인해주세요.');
   }
+}
+
+/* VSL 과 VSL3 는 같은 브랜드로 본다. 이미 있는 쪽 이름을 기준으로 맞춘다(둘 다 없으면 VSL3). */
+function normalizeFulfillmentBrand(b){
+  if(b!=='VSL' && b!=='VSL3') return b;
+  const names = ensureFulfillment().brandCarriers.map(x=>x.brand);
+  if(names.includes('VSL3')) return 'VSL3';
+  if(names.includes('VSL')) return 'VSL';
+  return 'VSL3';
+}
+/* 시트 반영 때 VSL3 품목이 'VSL'이라는 새 브랜드로 옮겨졌던 것을 VSL3 쪽으로 다시 합친다(1회).
+   품목·입출고 정보는 하나도 지우지 않고, VSL3 쪽에 이미 적힌 값은 그대로 두고 빈 칸만 채운다. */
+function mergeVslIntoVsl3(){
+  const f = ensureFulfillment();
+  if(f.vslMergedV1) return;
+  f.vslMergedV1 = true;
+  const hasVsl = f.brandCarriers.some(x=>x.brand==='VSL');
+  if(!hasVsl) return;
+  let moved = 0;
+  f.items.forEach(it=>{ if(it.brand==='VSL'){ it.brand = 'VSL3'; touch(it); moved++; } });
+  const vc = f.brandCarriers.find(x=>x.brand==='VSL');
+  let tc = f.brandCarriers.find(x=>x.brand==='VSL3');
+  if(!tc){ vc.brand = 'VSL3'; tc = vc; }
+  else {
+    if(!tc.carrier && vc.carrier) tc.carrier = vc.carrier;
+    f.brandCarriers = f.brandCarriers.filter(x=>x!==vc);
+  }
+  const lv = f.logistics['VSL'];
+  if(lv){
+    const l3 = ensureFulfillmentLogistics('VSL3');
+    Object.keys(lv).forEach(k=>{ if(lv[k] && !l3[k]) l3[k] = lv[k]; });
+    delete f.logistics['VSL'];
+  }
+  if(f.itemFilter['VSL']!==undefined){ if(f.itemFilter['VSL3']===undefined) f.itemFilter['VSL3'] = f.itemFilter['VSL']; delete f.itemFilter['VSL']; }
+  f.sheetV1Msg = `VSL 품목 ${moved}개를 VSL3로 다시 합쳤어요 (VSL = VSL3)` + (f.sheetV1Msg ? ' · '+f.sheetV1Msg : '');
+  saveState();
 }
 /* ---- 품목 데이터 ---- */
 function addFulfillmentItem(){
@@ -3815,6 +3853,7 @@ function renderFulfillmentInboundCalc(){
 
 function renderFulfillmentItems(){
   applyFulfillmentSheetV1(); // 구글시트 기준 최초 1회 갱신 (이미 했으면 건너뜀)
+  mergeVslIntoVsl3(); // VSL → VSL3 합치기 (1회)
   const f = ensureFulfillment();
   const brands = fulfillmentBrandList();
   // 사용 꺼진 품목은 맨 아래로(기존 순서는 유지)
@@ -4325,7 +4364,7 @@ function importFulfillmentItemsFromRows(rows, position, batchId){
   const imported = [];
   let count = 0;
   rows.forEach(row=>{
-    const brand = excelRowVal(row,'브랜드');
+    const brand = normalizeFulfillmentBrand(excelRowVal(row,'브랜드'));
     const itemCode = excelRowVal(row,'품목코드');
     const itemBarcode = excelRowVal(row,'품목바코드') || excelRowVal(row,'바코드');
     const itemName = excelRowVal(row,'품목명');
