@@ -3987,9 +3987,9 @@ function renderFulfillmentItems(){
       ${visibleItems.length===0 ? `<div class="empty">${f.items.length===0 ? '등록된 품목이 없습니다. 오른쪽 위 버튼으로 추가해보세요.' : '필터 조건에 맞는 품목이 없습니다.'}</div>` : `
       <table style="table-layout:fixed;width:100%">
         <colgroup>
-          <col style="width:46px"><col style="width:100px"><col style="width:96px"><col style="width:124px"><col><col style="width:56px"><col style="width:64px"><col style="width:100px"><col style="width:84px"><col style="width:84px"><col style="width:30px">
+          <col style="width:46px"><col style="width:96px"><col style="width:110px"><col style="width:136px"><col><col style="width:60px"><col style="width:72px"><col style="width:124px"><col style="width:84px"><col style="width:104px"><col style="width:104px"><col style="width:30px">
         </colgroup>
-        <thead><tr><th style="text-align:center">사용</th><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th class="num">PLT당 박스</th><th>CL 코드</th><th class="num" title="CL 창고 가용재고(하루 3번 수집)">CL 재고</th><th class="num" title="최근 14일 하루 평균 출고 × 7 (가구매 제외)">CL 7일 출고(환산)</th><th class="num" title="N배송 판매가능 수량(하루 3번 수집)">N배송 판매가능</th><th class="num" title="N배송 최근 7일 주문">N배송 7일 주문</th><th></th></tr></thead>
+        <thead><tr><th style="text-align:center">사용</th><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th class="num">PLT당 박스</th><th>CL 코드</th><th class="num" title="CL 창고 가용재고(하루 3번 수집)">CL 재고</th><th class="num" title="N배송 판매가능 수량(하루 3번 수집)">N배송 판매가능</th><th class="num" title="N배송 최근 7일 주문">N배송 7일 주문</th><th></th></tr></thead>
         <tbody>
           ${visibleItems.map(it=>`
             <tr style="${it.active===false?'opacity:.42;background:rgba(0,0,0,.04)':''}">
@@ -4007,7 +4007,6 @@ function renderFulfillmentItems(){
               <td class="num"><input class="row-input" type="number" value="${it.pltBoxQty||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','pltBoxQty',this.value)"></td>
               <td><input class="row-input" style="text-align:left" value="${it.clCode||''}" onchange="updateFulfillmentItemField('${it.id}','clCode',this.value)"></td>
               <td class="num mono">${it.stockAvail===undefined||it.stockAvail==='' ? '<span style="color:var(--text-secondary)">-</span>' : (it.stockAvail<=0 ? `<span style="color:#e01e1e;font-weight:700">${it.stockAvail}</span>` : Number(it.stockAvail).toLocaleString('ko-KR'))}</td>
-              <td class="num mono">${it.out7===undefined||it.out7==='' ? '<span style="color:var(--text-secondary)">-</span>' : Number(it.out7).toLocaleString('ko-KR')}</td>
               <td class="num mono">${it.nStock===undefined||it.nStock==='' ? '<span style="color:var(--text-secondary)">-</span>' : (it.nStock<=0 ? `<span style="color:#e01e1e;font-weight:700">${it.nStock}</span>` : Number(it.nStock).toLocaleString('ko-KR'))}</td>
               <td class="num mono">${it.nOut7===undefined||it.nOut7==='' ? '<span style="color:var(--text-secondary)">-</span>' : Number(it.nOut7).toLocaleString('ko-KR')}</td>
               <td><button class="btn-del" onclick="deleteFulfillmentItem('${it.id}')" title="삭제">✕</button></td>
