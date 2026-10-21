@@ -3534,8 +3534,35 @@ async function syncFulfillmentStock(){
       if(avail==='') none++; else hit++;
       it.stockAvail = avail; it.out7 = out7; touch(it);
     });
+    // N배송 재고: 바코드로 매칭 (서버 stock_share.php 에 view=nship 가 있어야 함)
+    let nHit = 0, nErr = '';
+    try{
+      const u = new URL(base); u.searchParams.set('view','nship');
+      const r = await fetch(u.toString(), {cache:'no-store'});
+      const j = await r.json();
+      if(!j || j.ok===false) throw new Error((j && j.error) || '응답 오류');
+      const byBar = {};
+      (j.items||[]).forEach(x=>{
+        const vals = []; (function walk(o){ if(o && typeof o==='object'){ Object.keys(o).forEach(k=>walk(o[k])); } else if(o!==null && o!==undefined) vals.push(String(o).trim()); })(x);
+        vals.forEach(v=>{ if(/^\d{8,14}$/.test(v) && !byBar[v]) byBar[v] = x; });
+      });
+      f.items.forEach(it=>{
+        const bc = String(it.itemBarcode||'').trim();
+        const x = bc && byBar[bc];
+        if(x){
+          const n = x.totalAvailableInventoryNormalQuantity;
+          it.nStock = (n===null||n===undefined||n==='') ? '' : Math.round(Number(n)||0);
+          it.nOut7 = Math.round(Number(x.last7dOrderQuantity)||0);
+          nHit++;
+        } else { it.nStock = ''; it.nOut7 = ''; }
+        touch(it);
+      });
+      f.nshipAt = j.nship_at || '';
+    }catch(e){ nErr = e.message; }
     const d = clAt ? new Date(clAt) : null;
-    f.stockMsg = `재고 불러오기 완료: ${hit}개 갱신` + (none?` · 재고 정보 없음 ${none}개`:'') + (d && !isNaN(d) ? ` · CL ${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')} 수집 기준(실시간 아님)` : '');
+    const nd = f.nshipAt ? new Date(f.nshipAt) : null;
+    const hm = (z)=> `${z.getMonth()+1}/${z.getDate()} ${String(z.getHours()).padStart(2,'0')}:${String(z.getMinutes()).padStart(2,'0')}`;
+    f.stockMsg = `재고 불러오기 완료: CL ${hit}개` + (none?`(정보 없음 ${none}개)`:'') + (nErr ? ` · N배송 못 가져옴(${nErr})` : ` · N배송 ${nHit}개`) + (d && !isNaN(d) ? ` · CL ${hm(d)} 수집` : '') + (!nErr && nd && !isNaN(nd) ? ` · N배송 ${hm(nd)} 수집` : '') + ' (실시간 아님)';
     saveState(); render();
   }catch(e){
     if(btn){ btn.disabled = false; btn.textContent = '재고 불러오기'; }
@@ -3962,7 +3989,7 @@ function renderFulfillmentItems(){
         <colgroup>
           <col style="width:46px"><col style="width:100px"><col style="width:96px"><col style="width:124px"><col><col style="width:56px"><col style="width:64px"><col style="width:100px"><col style="width:84px"><col style="width:84px"><col style="width:30px">
         </colgroup>
-        <thead><tr><th style="text-align:center">사용</th><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th class="num">PLT당 박스</th><th>CL 코드</th><th class="num" title="CL 창고 가용재고(하루 3번 수집)">판매가능 재고</th><th class="num" title="최근 14일 하루 평균 출고 × 7 (가구매 제외)">7일 출고(환산)</th><th></th></tr></thead>
+        <thead><tr><th style="text-align:center">사용</th><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th class="num">PLT당 박스</th><th>CL 코드</th><th class="num" title="CL 창고 가용재고(하루 3번 수집)">CL 재고</th><th class="num" title="최근 14일 하루 평균 출고 × 7 (가구매 제외)">CL 7일 출고(환산)</th><th class="num" title="N배송 판매가능 수량(하루 3번 수집)">N배송 판매가능</th><th class="num" title="N배송 최근 7일 주문">N배송 7일 주문</th><th></th></tr></thead>
         <tbody>
           ${visibleItems.map(it=>`
             <tr style="${it.active===false?'opacity:.42;background:rgba(0,0,0,.04)':''}">
@@ -3981,6 +4008,8 @@ function renderFulfillmentItems(){
               <td><input class="row-input" style="text-align:left" value="${it.clCode||''}" onchange="updateFulfillmentItemField('${it.id}','clCode',this.value)"></td>
               <td class="num mono">${it.stockAvail===undefined||it.stockAvail==='' ? '<span style="color:var(--text-secondary)">-</span>' : (it.stockAvail<=0 ? `<span style="color:#e01e1e;font-weight:700">${it.stockAvail}</span>` : Number(it.stockAvail).toLocaleString('ko-KR'))}</td>
               <td class="num mono">${it.out7===undefined||it.out7==='' ? '<span style="color:var(--text-secondary)">-</span>' : Number(it.out7).toLocaleString('ko-KR')}</td>
+              <td class="num mono">${it.nStock===undefined||it.nStock==='' ? '<span style="color:var(--text-secondary)">-</span>' : (it.nStock<=0 ? `<span style="color:#e01e1e;font-weight:700">${it.nStock}</span>` : Number(it.nStock).toLocaleString('ko-KR'))}</td>
+              <td class="num mono">${it.nOut7===undefined||it.nOut7==='' ? '<span style="color:var(--text-secondary)">-</span>' : Number(it.nOut7).toLocaleString('ko-KR')}</td>
               <td><button class="btn-del" onclick="deleteFulfillmentItem('${it.id}')" title="삭제">✕</button></td>
             </tr>
           `).join('')}
