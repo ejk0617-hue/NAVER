@@ -1333,6 +1333,7 @@ function scheduleServerPush(){
 }
 async function pushToServer(){
   if(!getFirebaseConfig()) return;
+  if(freshLocalBoot) return; // 서버 데이터를 처음 받아오기 전(빈 브라우저)에는 서버로 올리지 않는다
   if(!firebaseDb){ initFirebaseSync(false); if(!firebaseDb) return; }
   syncStatus.state = 'syncing'; updateSyncBadge();
   try{
