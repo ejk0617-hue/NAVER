@@ -595,6 +595,8 @@
     .page-side{width:100%;position:relative;top:0;max-height:none;}
     .brg-grid{grid-template-columns:1fr;}
   }
+.cp-input{background:#FFF8E1 !important;border:1.5px solid #F0B429 !important;border-radius:6px;padding:6px 8px}
+.cp-input:focus{background:#fff !important;border-color:#E8590C !important;outline:none}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
@@ -644,6 +646,7 @@ const NAV_GROUPS = [
     {sectionKey:'seosea',    label:'스스광고', color:'var(--c-seosea)'},
     {sectionKey:'brgeom',    label:'브검',     color:'var(--c-brgeom)'},
     {sectionKey:'bizwallet', label:'비즈월렛', color:'var(--c-bizwallet)'},
+    {sectionKey:'charge_all', label:'충전',     color:'#E8590C'},
     {sectionKey:'draft',     label:'충전기안', color:'#4B5566'},
   ]},
   {key:'promotion', type:'group', label:'프로모션', color:'#E0578C', children:[
@@ -768,6 +771,7 @@ function defaultState(){
     seosea:    {charges:[], dailyBudget:{}},
     brgeom:    {cycles:[]},
     bizwallet: {charges:[], usages:[], initialBalance:{}},
+    chargePlan: {today:'', nextDate:'', rows:{}}, // 충전 탭: 오늘/다음 충전일, 행별 현잔액·평균소진
     draftEntries: [], // 충전기안 탭에서 수기로 등록하는 계정/브랜드 목록 (광고종류, 계정, 사업자, 스토어, 계좌)
     navOrder: null, // 왼쪽 메뉴 순서 (null이면 기본 순서, 사용자가 바꾸면 배열로 저장됨)
     promotion: null, // 프로모션 카테고리 데이터 (null이면 최초 진입 시 ensurePromotion()에서 기본값 생성)
@@ -799,6 +803,8 @@ function ensureAdSections(){
   if(!Array.isArray(state.brgeom.cycles)) state.brgeom.cycles = [];
 
   if(!Array.isArray(state.draftEntries)) state.draftEntries = [];
+  if(!state.chargePlan || typeof state.chargePlan!=='object') state.chargePlan = {today:'', nextDate:'', rows:{}};
+  if(!state.chargePlan.rows || typeof state.chargePlan.rows!=='object') state.chargePlan.rows = {};
   if(!state.colWidths || typeof state.colWidths!=='object') state.colWidths = {};
 }
 function sanitizeStateArrays(){
@@ -1573,6 +1579,7 @@ function render(){
       case 'seosea': main.innerHTML = renderSeosea(); break;
       case 'brgeom': main.innerHTML = renderBrgeom(); break;
       case 'bizwallet': main.innerHTML = renderBizwallet(); break;
+      case 'charge_all': main.innerHTML = renderChargeAll(); break;
       case 'draft': main.innerHTML = renderDraft(); break;
       case 'promo_calendar': main.innerHTML = renderPromoCalendar(); break;
       case 'promo_proposals': main.innerHTML = renderPromoProposals(); break;
@@ -8574,6 +8581,148 @@ function getTodayChargeSum(entry){
   if(matches.length===0) return null;
   const amount = matches.reduce((s,c)=>s+Number(c.amount||0),0);
   return {amount, count:matches.length};
+}
+
+
+/* =========================================================================
+   충전 (전체 광고 한 화면: 현잔액·평균 소진금액 입력 → 충전필요 금액 자동 계산 → 충전내역 일괄 생성)
+   ========================================================================= */
+function ensureChargePlan(){
+  if(!state.chargePlan || typeof state.chargePlan!=='object') state.chargePlan = {today:'', nextDate:'', rows:{}};
+  if(!state.chargePlan.rows || typeof state.chargePlan.rows!=='object') state.chargePlan.rows = {};
+  return state.chargePlan;
+}
+function chargePlanRows(){
+  const rows = [];
+  shogeomAccounts().forEach(a=>rows.push({adType:'shogeom', adName:'쇼검', key:a.id, brand:a.id + (a.brands?` (${a.brands})`:'')}));
+  gfaBrandsList().forEach(a=>rows.push({adType:'gfa', adName:'GFA', key:a.id, brand:a.id}));
+  seoseaBrandsList().forEach(b=>rows.push({adType:'seosea', adName:'스스광고', key:b, brand:b}));
+  brgeomBrandsList().forEach(a=>rows.push({adType:'brgeom', adName:'브검', key:a.id, brand:a.id}));
+  bizwalletBrandsList().forEach(b=>rows.push({adType:'bizwallet', adName:'비즈월렛', key:b, brand:b}));
+  return rows;
+}
+function chargePlanRowId(r){ return r.adType+'|'+r.key; }
+function chargePlanDays(){
+  const p = ensureChargePlan();
+  const t = p.today || todayStr();
+  if(!p.nextDate) return null;
+  const d = Math.round((new Date(p.nextDate+'T00:00:00') - new Date(t+'T00:00:00'))/86400000);
+  return d>0 ? d : null;
+}
+function chargePlanNeed(r){
+  const days = chargePlanDays();
+  if(days===null) return null;
+  const v = ensureChargePlan().rows[chargePlanRowId(r)] || {};
+  const avg = Number(v.avg)||0, bal = Number(v.balance)||0;
+  if(!avg) return null;
+  return Math.max(0, Math.round(avg*days - bal));
+}
+function updateChargePlanDate(field, value){
+  ensureChargePlan()[field] = value;
+  saveState(); render();
+}
+function updateChargePlanRow(rid, field, value, inputEl){
+  const p = ensureChargePlan();
+  if(!p.rows[rid]) p.rows[rid] = {};
+  const n = String(value).replace(/[^0-9]/g,'');
+  p.rows[rid][field] = n;
+  if(inputEl) inputEl.value = n ? Number(n).toLocaleString('ko-KR') : '';
+  saveState();
+  // 입력 중 포커스가 풀리지 않게 전체 render 대신 이 행의 충전필요 금액만 갱신
+  const r = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
+  const cell = document.getElementById('cpNeed_'+rid.replace(/[^0-9A-Za-z가-힣]/g,'_'));
+  if(r && cell){ const need = chargePlanNeed(r); cell.innerHTML = need===null ? '<span style="color:var(--text-secondary)">-</span>' : (need>0 ? `<b>${formatWon(need)}</b>` : '<span style="color:var(--text-secondary)">충전 불필요</span>'); }
+  const totalEl = document.getElementById('cpTotal');
+  if(totalEl) totalEl.textContent = formatWon(chargePlanRows().reduce((s,x)=>s+(chargePlanNeed(x)||0),0));
+}
+function addChargeRow(rid){
+  const p = ensureChargePlan();
+  const date = p.today || todayStr();
+  const r = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
+  if(!r) return;
+  if(chargePlanDays()===null){ alert('다음 충전 날짜를 오늘 이후 날짜로 먼저 입력해주세요.'); return; }
+  const need = chargePlanNeed(r);
+  if(!(need>0)){ alert('충전필요 금액이 없습니다. 현잔액·평균 소진금액을 확인해주세요.'); return; }
+  const cfg = getAdTypeConfig(r.adType);
+  let dup = false;
+  if(cfg.isCycle){
+    const c = ensureBrgeomCurrentAll()[r.key];
+    dup = !!(c && c.pcStart===date && Number(c.pcAmount||0)>0);
+  } else {
+    dup = state[cfg.chargeSection].charges.some(c=>c[cfg.keyField]===r.key && c.date===date);
+  }
+  let msg = `${r.adName} / ${r.brand}\n${date} 날짜로 ${formatWon(need)} 충전 내역을 추가할까요?`;
+  if(dup) msg += `\n\n※ 같은 날짜에 이미 내역이 있어요. 그래도 추가할까요?`;
+  if(cfg.isCycle) msg += `\n\n※ 브검은 PC 시작일·PC 충전금액이 이 값으로 바뀝니다.`;
+  if(!confirm(msg)) return;
+  if(cfg.isCycle){
+    const cur = ensureBrgeomCurrentAll();
+    if(!cur[r.key]) cur[r.key] = {pcStart:'', pcEnd:'', pcAmount:'', mobileStart:'', mobileEnd:'', mobileAmount:''};
+    cur[r.key].pcStart = date;
+    cur[r.key].pcAmount = String(need);
+  } else {
+    const ch = touch({id:uid(), date, amount:need, memo:'충전 탭 등록'});
+    ch[cfg.keyField] = r.key;
+    state[cfg.chargeSection].charges.push(ch);
+  }
+  saveState(); render();
+}
+function renderChargeAll(){
+  const p = ensureChargePlan();
+  const today = p.today || todayStr();
+  const days = chargePlanDays();
+  const rows = chargePlanRows();
+  const total = rows.reduce((s,r)=>s+(chargePlanNeed(r)||0),0);
+  let lastType = '';
+  return `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:#E8590C22;color:#E8590C">충전</span>
+        <h1>전체 광고 충전</h1>
+        <div class="sub">현잔액과 평균 소진금액(<b>하루 기준</b>)만 입력하면 다음 충전일까지 필요한 금액이 자동 계산돼요 · 충전필요 = 평균 소진금액 × 남은 일수 − 현잔액</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-end">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">오늘 날짜
+          <input type="date" value="${today}" onchange="updateChargePlanDate('today',this.value)">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:13px">다음 충전 날짜
+          <input type="date" value="${p.nextDate||''}" onchange="updateChargePlanDate('nextDate',this.value)">
+        </label>
+        <div style="font-size:13px;color:var(--text-secondary)">${days!==null ? `다음 충전일까지 <b>${days}일</b>` : '다음 충전 날짜를 오늘 이후로 입력하면 계산돼요'}</div>
+        <div style="margin-left:auto;font-size:14px">충전필요 합계 <b id="cpTotal">${formatWon(total)}</b></div>
+      </div>
+    </div>
+
+    <div class="card" style="overflow-x:auto">
+      <table style="width:auto;table-layout:fixed;min-width:0">
+        <colgroup><col style="width:80px"><col style="width:150px"><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:70px"></colgroup>
+        <thead><tr><th>광고명</th><th>브랜드</th><th class="num">현잔액</th><th class="num">평균 소진금액 (일)</th><th class="num">충전필요 금액</th><th></th></tr></thead>
+        <tbody>
+          ${rows.map(r=>{
+            const rid = chargePlanRowId(r);
+            const v = p.rows[rid] || {};
+            const need = chargePlanNeed(r);
+            const cid = rid.replace(/[^0-9A-Za-z가-힣]/g,'_');
+            const sep = r.adType!==lastType ? 'border-top:2px solid var(--border,#ddd)' : '';
+            lastType = r.adType;
+            const fmt = x => x ? Number(x).toLocaleString('ko-KR') : '';
+            return `<tr style="${sep}">
+              <td>${r.adName}</td>
+              <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.brand}">${r.key}</td>
+              <td class="num"><input class="sheet-input cp-input" style="text-align:right;width:120px" inputmode="numeric" value="${fmt(v.balance)}" onchange="updateChargePlanRow('${rid.replace(/'/g,"\\'")}','balance',this.value,this)"></td>
+              <td class="num"><input class="sheet-input cp-input" style="text-align:right;width:120px" inputmode="numeric" value="${fmt(v.avg)}" onchange="updateChargePlanRow('${rid.replace(/'/g,"\\'")}','avg',this.value,this)"></td>
+              <td class="num mono" id="cpNeed_${cid}">${need===null ? '<span style="color:var(--text-secondary)">-</span>' : (need>0 ? `<b>${formatWon(need)}</b>` : '<span style="color:var(--text-secondary)">충전 불필요</span>')}</td>
+              <td><button class="btn" style="padding:4px 10px" onclick="addChargeRow('${rid.replace(/'/g,"\\'")}')">추가</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+      <div class="helptext">각 행의 '추가'를 누르면 그 항목의 충전필요 금액이 위 '오늘 날짜'로 해당 광고 탭(GFA·쇼검·스스광고·비즈월렛은 충전 내역, 브검은 PC 시작일/충전금액)에 등록되고, 충전기안에 바로 나타나요. 충전기안에 계정이 등록돼 있어야 문구가 만들어집니다.</div>
+    </div>
+  `;
 }
 
 function ensureDraftEntries(){
