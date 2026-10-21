@@ -648,6 +648,7 @@
       <button id="undoBtn" onclick="undoLastAction()" title="Ctrl+Z로도 되돌릴 수 있어요">↩️ 되돌리기 (Ctrl+Z)</button>
       <button id="forceSaveBtn" onclick="forceSaveNow()" title="Ctrl+S로도 저장할 수 있어요">💾 지금 저장 (Ctrl+S)</button>
       <div id="syncBadge" class="sync-badge"></div>
+      <button onclick="openGuideModal()">📖 사용설명서</button>
       <button onclick="manualRefresh()">🔄 서버에서 새로고침</button>
       <button onclick="openAccessCodeDialog()">☁️ 클라우드 동기화 설정 (Firebase)</button>
       <button onclick="exportData()">⬇ 데이터 백업 (JSON)</button>
@@ -667,7 +668,6 @@ const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 
 /* 좌측 메뉴 구조: 대카테고리(그룹) + 중카테고리(하위 메뉴). type:'single'은 그룹 없이 단독 메뉴 */
 const NAV_GROUPS = [
-  {key:'dashboard', type:'single', sectionKey:'dashboard', label:'대시보드', color:'#5D6577'},
   {key:'ad', type:'group', label:'광고', color:'var(--c-shogeom)', children:[
     {sectionKey:'shogeom',   label:'쇼검',     color:'var(--c-shogeom)'},
     {sectionKey:'gfa',       label:'GFA',      color:'var(--c-gfa)'},
@@ -1440,7 +1440,7 @@ function ensureMonthEntry(sectionKey, key, m){
 /* =========================================================================
    라우팅 / 렌더
    ========================================================================= */
-let currentSection = 'dashboard';
+let currentSection = 'promo_calendar';
 let currentPick = {shogeom:shogeomAccounts()[0].id, gfa:gfaBrandsList()[0].id, seosea:seoseaBrandsList()[0], brgeom:brgeomBrandsList()[0].id, bizwallet:bizwalletBrandsList()[0]};
 let dashAdSectionOpen = false; // 대시보드 "광고 대시보드" 접이식 섹션 — 기본값은 닫힘
 function toggleDashAdSection(){ dashAdSectionOpen = !dashAdSectionOpen; render(); }
@@ -1624,8 +1624,9 @@ function render(){
       case 'smartstore_sales': main.innerHTML = renderSmartstoreDashboard(); break;
       case 'weekly_meeting': main.innerHTML = renderWeeklyMeeting(); break;
       case 'smartstore_calc': main.innerHTML = renderSmartstoreCalc(); break;
-      default: main.innerHTML = renderDashboard();
+      default: main.innerHTML = renderPromoCalendar();
     }
+    if(guideModalOpen) main.insertAdjacentHTML('beforeend', renderGuideModal()); // 사용설명서 팝업은 어느 화면에서든 열린다
   }catch(err){
     console.error('화면 렌더링 오류:', err);
     main.innerHTML = `
@@ -1634,7 +1635,7 @@ function render(){
         <div class="helptext" style="margin-top:0">저장된 데이터 일부가 손상되었을 수 있습니다. 아래 메시지를 캡처해서 알려주시면 원인을 확인해드릴게요.</div>
         <pre style="background:#FAFAFB;border:1px solid var(--border);border-radius:8px;padding:12px;font-size:12px;white-space:pre-wrap;color:var(--negative);margin-top:10px">${(err && err.message ? err.message : String(err)).replace(/</g,'&lt;')}</pre>
         <div style="display:flex;gap:8px;margin-top:14px">
-          <button class="btn" onclick="navigate('dashboard')">대시보드로 돌아가기</button>
+          <button class="btn" onclick="navigate('promo_calendar')">처음 화면으로 돌아가기</button>
           <button class="btn ghost" onclick="if(confirm('저장된 모든 데이터를 초기화할까요? 이 작업은 되돌릴 수 없습니다.')){ localStorage.removeItem(STORAGE_KEY); location.reload(); }">데이터 초기화 후 새로고침</button>
         </div>
       </div>`;
@@ -5640,14 +5641,12 @@ function buildPromoCalGrid(y, m, eventsOnDay, renderChip){
 
 function renderPromoCalendar(){
   const promo = ensurePromotion();
-  const isSelected = promoCalTab==='selected';
   const isLive = promoCalTab==='live';
-  const isPropose = !isSelected && !isLive;
+  const isSelected = !isLive; // 제안캘린더 탭은 없앴어요(제안리스트 데이터는 그대로 보관)
 
   const tabsHtml = `
     <div class="promo-cal-tabs">
       <button class="promo-cal-tab ${isSelected?'active':''}" onclick="switchPromoCalTab('selected')">선정캘린더</button>
-      <button class="promo-cal-tab ${isPropose?'active':''}" onclick="switchPromoCalTab('propose')">제안캘린더</button>
       <button class="promo-cal-tab ${isLive?'active':''}" onclick="switchPromoCalTab('live')">라이브캘린더</button>
     </div>`;
 
@@ -5719,24 +5718,33 @@ function renderPromoCalendar(){
     const view = ensurePromoCalView();
     const y = view.y, m = view.m;
     // 브랜드 목록에 없는(삭제된) 값이 데이터에 남아있어도 필터에서 항상 보이도록 union 처리
-    const allBrandsInUse = Array.from(new Set([...promo.brands, ...promo.proposals.map(p=>p.brand).filter(Boolean)]));
+    const allBrandsInUse = Array.from(new Set([...promo.brands, ...promo.selections.map(p=>p.brand).filter(Boolean)]));
 
+    // 선정리스트의 같은 프로모션(프로모션명+시작일+종료일)은 한 줄로 묶고, 브랜드를 함께 보여준다
+    function groupSelections(){
+      const map = {};
+      promo.selections.forEach(sel=>{
+        if(!sel.startDate || !sel.endDate) return;
+        const key = (sel.promoName||'')+'|'+sel.startDate+'|'+sel.endDate;
+        if(!map[key]) map[key] = {promoName:sel.promoName||'', startDate:sel.startDate, endDate:sel.endDate, items:[]};
+        map[key].items.push(sel);
+      });
+      return Object.values(map);
+    }
+    const selGroups = groupSelections();
     function eventsOnDay(dateStr){
-      return promo.proposals.filter(p=>{
-        const sel = selectedBrandsOf(p);
-        if(sel.length===0) return false;
-        if(!p.periodStart || !p.periodEnd) return false;
-        if(p.periodStart > dateStr || p.periodEnd < dateStr) return false;
-        if(!sel.some(b=>isPromoBrandVisible(b))) return false;
-        return true;
+      return selGroups.filter(g=>{
+        if(g.startDate > dateStr || g.endDate < dateStr) return false;
+        return g.items.some(it=> !it.brand || isPromoBrandVisible(it.brand));
       });
     }
     const renderChip = ev=>{
-      const sel = selectedBrandsOf(ev).filter(b=>isPromoBrandVisible(b));
-      const label = (ev.promoName || '(제목 없음)') + (sel.length ? '_'+sel.join(',') : '');
-      const chipColor = promoBrandColor(sel[0] || '');
+      const brands = Array.from(new Set(ev.items.map(it=>it.brand).filter(b=>b && isPromoBrandVisible(b))));
+      const label = (ev.promoName || '(제목 없음)') + (brands.length ? '_'+brands.join(',') : '');
+      const detail = ev.items.filter(it=>it.brand && it.exposureDate).map(it=>`${it.brand}(노출일 ${it.exposureDate})`).join(', ');
+      const chipColor = promoBrandColor(brands[0] || '');
       return `
-        <div class="promo-cal-chip" style="background:${chipColor}22;color:${chipColor}" title="${label}">
+        <div class="promo-cal-chip" style="background:${chipColor}22;color:${chipColor}" title="${(label+(detail?' · '+detail:'')).replace(/"/g,'&quot;')}">
           <span class="promo-cal-chip-dot" style="background:${chipColor}"></span>${label}
         </div>`;
     };
@@ -5746,7 +5754,7 @@ function renderPromoCalendar(){
         <div>
           <span class="eyebrow" style="background:#E0578C22;color:#E0578C">프로모션</span>
           <h1>캘린더</h1>
-          <div class="sub">선정캘린더는 "선정완료"로 체크된 프로모션이 프로모션명_브랜드 형태로 표시됩니다 · 브랜드를 체크하면 원하는 브랜드만 볼 수 있어요</div>
+          <div class="sub">선정캘린더는 선정리스트의 시작일~종료일 기준으로 프로모션명_브랜드 형태로 표시됩니다 · 브랜드를 체크하면 원하는 브랜드만 볼 수 있어요</div>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <button class="btn ghost" onclick="promoCalPrev()" style="color:var(--text-primary)">◀</button>
