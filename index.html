@@ -8742,11 +8742,11 @@ async function syncChargeFromServer(){
   if(btn){ btn.disabled = true; btn.textContent = '불러오는 중…'; }
   try{
     const get = async f => {
-      const r = await fetch(CHARGE_SYNC_BASE+f, {cache:'no-store'});
+      const r = await fetch(CHARGE_SYNC_BASE+'cors.php?f='+f, {cache:'no-store'});
       if(!r.ok) throw new Error(f+' ('+r.status+')');
       return r.json();
     };
-    const [bal, daily, plan] = await Promise.all([get('ad_balances.php'), get('account_daily.json'), get('charge_plan.php').catch(()=>({}))]);
+    const [bal, daily, plan] = await Promise.all([get('ad_balances'), get('account_daily'), get('charge_plan').catch(()=>({}))]);
     let updated = 0; const missing = [];
     chargePlanRows().forEach(r=>{
       let balNames = [], ids = [], burnWanted = true;
@@ -8778,7 +8778,7 @@ async function syncChargeFromServer(){
     saveState(); render();
   }catch(e){
     if(btn){ btn.disabled = false; btn.textContent = '잔액·소진 불러오기'; }
-    alert('나스에서 불러오지 못했어요.\n\n'+e.message+'\n\n나스 marketing_ad 폴더에 .htaccess로 아래 한 줄이 들어갔는지 확인해주세요.\nHeader set Access-Control-Allow-Origin "*"');
+    alert('나스에서 불러오지 못했어요.\n\n'+e.message+'\n\n나스 marketing_ad 폴더에 cors.php 파일이 들어있는지 확인해주세요.');
   }
 }
 
