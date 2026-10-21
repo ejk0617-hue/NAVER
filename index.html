@@ -619,6 +619,8 @@
 .cp-group-body{padding:4px 16px 14px;overflow-x:auto}
 .cp-table{width:auto;table-layout:fixed}
 .cp-table th{font-size:12px}
+.cp-date-mini{font-size:12px;padding:5px 6px;border:1.5px solid #F0B429;background:#FFF8E1;border-radius:6px;font-family:inherit}
+.btn.cp-done{background:#12A150}
 .cp-charge{border-color:#E8590C !important;background:#FFF1E6 !important}
 .cp-charge::placeholder{color:#c9a58c}
 .cp-input{background:#FFF8E1 !important;border:1.5px solid #F0B429 !important;border-radius:6px;padding:6px 8px}
@@ -8596,7 +8598,11 @@ function getTodayChargeSum(entry){
   if(cfg.isCycle){
     const c = ensureBrgeomCurrentAll()[entry.accountKey];
     let amount = 0, count = 0;
-    if(c){
+    if(c && c.draftHidden===today) return null; // 충전기안에서 삭제한 항목
+    if(c && c.chargedDate===today){ // 충전 탭의 '충전' 버튼을 누른 경우: MO+PC 가격 합계
+      if(Number(c.pcAmount||0)>0){ amount += Number(c.pcAmount); count++; }
+      if(Number(c.mobileAmount||0)>0){ amount += Number(c.mobileAmount); count++; }
+    } else if(c){
       if(c.pcStart && c.pcStart===today){ amount += Number(c.pcAmount||0); count++; }
       if(c.mobileStart && c.mobileStart===today){ amount += Number(c.mobileAmount||0); count++; }
     }
@@ -8667,23 +8673,12 @@ function addChargeRow(rid){
   const date = p.today || todayStr();
   const r = chargePlanRows().find(x=>chargePlanRowId(x)===rid);
   if(!r) return;
-  if(chargePlanDays()===null){ alert('다음 충전 날짜를 오늘 이후 날짜로 먼저 입력해주세요.'); return; }
   const need = chargePlanNeed(r);
   const custom = Number((p.rows[rid]||{}).charge)||0;
+  if(!(custom>0) && chargePlanDays()===null && r.adType!=='bizwallet'){ alert('다음 충전 날짜를 오늘 이후 날짜로 먼저 입력해주세요.'); return; }
   const amount = custom>0 ? custom : need;
   if(!(amount>0)){ alert('충전할 금액을 입력해주세요. (비워두면 충전필요 금액으로 등록돼요)'); return; }
   const cfg = getAdTypeConfig(r.adType);
-  let dup = false;
-  if(cfg.isCycle){
-    const c = ensureBrgeomCurrentAll()[r.key];
-    dup = !!(c && c.pcStart===date && Number(c.pcAmount||0)>0);
-  } else {
-    dup = state[cfg.chargeSection].charges.some(c=>c[cfg.keyField]===r.key && c.date===date);
-  }
-  let msg = `${r.adName} / ${r.brand}\n${date} 날짜로 ${formatWon(amount)} 충전 내역을 추가할까요?${custom>0?'\n(직접 입력한 충전할 금액)':''}`;
-  if(dup) msg += `\n\n※ 같은 날짜에 이미 내역이 있어요. 그래도 추가할까요?`;
-  if(cfg.isCycle) msg += `\n\n※ 브검은 PC 시작일·PC 충전금액이 이 값으로 바뀝니다.`;
-  if(!confirm(msg)) return;
   if(cfg.isCycle){
     const cur = ensureBrgeomCurrentAll();
     if(!cur[r.key]) cur[r.key] = {pcStart:'', pcEnd:'', pcAmount:'', mobileStart:'', mobileEnd:'', mobileAmount:''};
@@ -8697,6 +8692,57 @@ function addChargeRow(rid){
   if(p.rows[rid]) p.rows[rid].charge = '';
   saveState(); render();
 }
+
+function updateBrgeomChargeField(brand, field, value, el){
+  const cur = ensureBrgeomCurrentAll();
+  if(!cur[brand]) cur[brand] = {pcStart:'', pcEnd:'', pcAmount:'', mobileStart:'', mobileEnd:'', mobileAmount:''};
+  if(field==='pcAmount' || field==='mobileAmount'){
+    const n = String(value).replace(/[^0-9]/g,'');
+    cur[brand][field] = n;
+    if(el) el.value = n ? Number(n).toLocaleString('ko-KR') : '';
+  } else {
+    cur[brand][field] = value;
+  }
+  cur[brand].chargedDate = ''; // 값을 고치면 다시 '충전'을 눌러야 충전기안에 반영
+  cur[brand].draftHidden = '';
+  saveState();
+  const btn = document.getElementById('brgBtn_'+brand.replace(/[^0-9A-Za-z가-힣]/g,'_'));
+  if(btn){ btn.textContent = '충전'; btn.classList.remove('cp-done'); }
+}
+function chargeBrgeom(brand){
+  const cur = ensureBrgeomCurrentAll();
+  const c = cur[brand];
+  if(!c || !(Number(c.pcAmount||0)>0 || Number(c.mobileAmount||0)>0)){ alert('MO 가격 또는 PC 가격을 입력해주세요.'); return; }
+  c.chargedDate = todayStr(); c.draftHidden = '';
+  saveState(); render();
+}
+function renderChargeBrgeomTable(){
+  const cur = ensureBrgeomCurrentAll();
+  const today = todayStr();
+  const fmt = x => x ? Number(x).toLocaleString('ko-KR') : '';
+  const di = (b,f,v)=>`<input type="date" class="cp-date-mini" value="${v||''}" onchange="updateBrgeomChargeField('${b}','${f}',this.value,this)">`;
+  const ai = (b,f,v)=>`<input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v)}" onchange="updateBrgeomChargeField('${b}','${f}',this.value,this)">`;
+  return `
+  <table class="cp-table" style="table-layout:auto">
+    <thead><tr><th style="text-align:left">브랜드</th><th style="text-align:center">MO 가격</th><th style="text-align:center">PC 가격</th><th style="text-align:center">MO 시작 ~ 종료</th><th style="text-align:center">PC 시작 ~ 종료</th><th></th></tr></thead>
+    <tbody>
+      ${brgeomBrandsList().map(item=>{
+        const b = item.id, c = cur[b] || {};
+        const done = c.chargedDate===today;
+        const bid = b.replace(/[^0-9A-Za-z가-힣]/g,'_');
+        return `<tr>
+          <td>${b}</td>
+          <td style="text-align:center">${ai(b,'mobileAmount',c.mobileAmount)}</td>
+          <td style="text-align:center">${ai(b,'pcAmount',c.pcAmount)}</td>
+          <td style="text-align:center;white-space:nowrap">${di(b,'mobileStart',c.mobileStart)} ~ ${di(b,'mobileEnd',c.mobileEnd)}</td>
+          <td style="text-align:center;white-space:nowrap">${di(b,'pcStart',c.pcStart)} ~ ${di(b,'pcEnd',c.pcEnd)}</td>
+          <td><button class="btn ${done?'cp-done':''}" id="brgBtn_${bid}" style="padding:4px 12px" onclick="chargeBrgeom('${b.replace(/'/g,"\\'")}')">${done?'✓ 충전됨':'충전'}</button></td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+}
+
 const CHARGE_GROUPS = [
   {type:'shogeom',   label:'쇼검',     color:'#2F6FED'},
   {type:'gfa',       label:'GFA',      color:'#7C4DFF'},
@@ -8754,6 +8800,7 @@ async function syncChargeFromServer(){
     const [bal, daily, plan] = await Promise.all([get('ad_balances'), get('account_daily'), get('charge_plan').catch(()=>({}))]);
     let updated = 0; const missing = [];
     chargePlanRows().forEach(r=>{
+      if(r.adType==='brgeom') return;
       let balNames = [], ids = [], burnWanted = true;
       if(r.adType==='shogeom' && CHARGE_SYNC_SHOGEOM[r.key]){ balNames=[r.key]; ids=[CHARGE_SYNC_SHOGEOM[r.key]]; }
       else if(r.adType==='gfa' && CHARGE_SYNC_GFA[r.key]){ balNames=CHARGE_SYNC_GFA[r.key].bal; ids=CHARGE_SYNC_GFA[r.key].ids; }
@@ -8838,20 +8885,30 @@ function renderChargeAll(){
           <span class="cp-caret">${isClosed?'▶':'▼'}</span>
           <span class="cp-group-name" style="color:${g.color}">${g.label}</span>
           <span class="cp-group-count">${rows.length}개</span>
-          <span class="cp-group-sub" id="cpSub_${g.type}">충전필요 ${formatWon(sub)}</span>
+          <span class="cp-group-sub" id="cpSub_${g.type}">${g.type==='brgeom' ? '30일 주기 · 가격과 기간만 입력' : '충전필요 '+formatWon(sub)}</span>
         </div>
-        ${isClosed ? '' : `
+        ${isClosed ? '' : g.type==='brgeom' ? `
+        <div class="cp-group-body">${renderChargeBrgeomTable()}</div>` : `
         <div class="cp-group-body">
           <table class="cp-table">
+            ${g.type==='bizwallet' ? `
+            <colgroup><col style="width:170px"><col style="width:140px"><col style="width:150px"><col style="width:70px"></colgroup>
+            <thead><tr><th style="text-align:left">브랜드</th><th style="text-align:center">현잔액</th><th style="text-align:center">충전할 금액</th><th></th></tr></thead>` : `
             <colgroup><col style="width:170px"><col style="width:140px"><col style="width:140px"><col style="width:140px"><col style="width:150px"><col style="width:70px"></colgroup>
-            <thead><tr><th style="text-align:left">브랜드</th><th style="text-align:center">현잔액</th><th style="text-align:center">평균 소진금액 (일)</th><th style="text-align:center">충전필요 금액</th><th style="text-align:center">충전할 금액</th><th></th></tr></thead>
+            <thead><tr><th style="text-align:left">브랜드</th><th style="text-align:center">현잔액</th><th style="text-align:center">평균 소진금액 (일)</th><th style="text-align:center">충전필요 금액</th><th style="text-align:center">충전할 금액</th><th></th></tr></thead>`}
             <tbody>
-              ${rows.length===0 ? `<tr><td colspan="6" style="text-align:center;color:var(--text-secondary)">등록된 항목이 없습니다</td></tr>` : rows.map(r=>{
+              ${rows.length===0 ? `<tr><td colspan="${g.type==='bizwallet'?4:6}" style="text-align:center;color:var(--text-secondary)">등록된 항목이 없습니다</td></tr>` : rows.map(r=>{
                 const rid = chargePlanRowId(r);
                 const v = p.rows[rid] || {};
                 const need = chargePlanNeed(r);
                 const cid = rid.replace(/[^0-9A-Za-z가-힣]/g,'_');
                 const q = rid.replace(/'/g,"\\'");
+                if(g.type==='bizwallet') return `<tr>
+                  <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.key}</td>
+                  <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.balance)}" onchange="updateChargePlanRow('${q}','balance',this.value,this)"></td>
+                  <td style="text-align:center"><input class="sheet-input cp-input cp-charge" inputmode="numeric" placeholder="직접 입력" value="${fmt(v.charge)}" onchange="updateChargePlanRow('${q}','charge',this.value,this)"></td>
+                  <td><button class="btn" style="padding:4px 10px" onclick="addChargeRow('${q}')">추가</button></td>
+                </tr>`;
                 return `<tr>
                   <td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.brand}">${r.key}</td>
                   <td style="text-align:center"><input class="sheet-input cp-input" inputmode="numeric" value="${fmt(v.balance)}" onchange="updateChargePlanRow('${q}','balance',this.value,this)"></td>
@@ -8901,6 +8958,22 @@ function buildEntryDraftText(entry, todayInfo){
   const cfg = getAdTypeConfig(entry.adType);
   const amountText = `${formatWon(todayInfo.amount)} (VAT 포함)`;
   return `[${cfg.label}]\n계정: ${entry.accountKey}\n사업자: ${entry.biz||''}\n스토어: ${entry.store||''}\n계좌: ${entry.bank||'(계좌 미입력)'}\n금액: ${amountText}`;
+}
+function removeTodayDraftCharge(entryId){
+  const entry = ensureDraftEntries().find(e=>e.id===entryId);
+  if(!entry) return;
+  const info = getTodayChargeSum(entry);
+  if(!info) return;
+  const cfg = getAdTypeConfig(entry.adType);
+  if(!confirm(`${cfg.label} · ${entry.accountKey}\n오늘 충전 내역 ${info.count}건(${formatWon(info.amount)})을 삭제할까요?`)) return;
+  const today = todayStr();
+  if(cfg.isCycle){
+    const c = ensureBrgeomCurrentAll()[entry.accountKey];
+    if(c){ c.chargedDate = ''; c.draftHidden = today; }
+  } else {
+    state[cfg.chargeSection].charges = state[cfg.chargeSection].charges.filter(c=>!(c[cfg.keyField]===entry.accountKey && c.date===today));
+  }
+  saveState(); render();
 }
 function copyEntryCard(id, btnEl){
   const entry = ensureDraftEntries().find(e=>e.id===id);
@@ -9000,7 +9073,7 @@ function renderDraft(){
               <div class="draft-card">
                 <div class="dc-head" style="background:${DRAFT_HEAD_COLOR[entry.adType]||'#EEF0F3'}">
                   <span>${cfg.label} · ${entry.accountKey}</span>
-                  <button class="copy-btn" onclick="copyEntryCard('${entry.id}', this)">복사</button>
+                  <span style="display:flex;gap:6px"><button class="copy-btn" onclick="copyEntryCard('${entry.id}', this)">복사</button><button class="copy-btn" style="color:#c0392b" onclick="removeTodayDraftCharge('${entry.id}')" title="오늘 충전 내역 삭제">삭제</button></span>
                 </div>
                 <div class="draft-row"><div class="lbl">사업자</div><div class="val">${entry.biz||''}</div></div>
                 <div class="draft-row"><div class="lbl">스토어</div><div class="val">${entry.store||''}</div></div>
