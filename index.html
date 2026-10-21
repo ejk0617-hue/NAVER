@@ -8844,7 +8844,8 @@ async function syncChargeFromServer(){
       p.addedExtras[ex.flag] = true;
       const arr = lists[ex.list];
       const id = typeof ex.item==='string' ? ex.item : ex.item.id;
-      if(arr.some(x=>(typeof x==='string'?x:x.id)===id)) return;
+      const al = x => CHARGE_SYNC_ALIAS[x] || x; // 오스템 = 오스템와픽처럼 같은 걸 가리키는 이름이 이미 있으면 새로 만들지 않는다
+      if(arr.some(x=>al(typeof x==='string'?x:x.id)===al(id))) return;
       arr.push(typeof ex.item==='string' ? ex.item : Object.assign({}, ex.item));
       addedNames.push(id);
     });
