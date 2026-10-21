@@ -3797,6 +3797,12 @@ async function importCjStockExcel(){
 }
 
 /* 품절 임박 브랜드: 현재고 ÷ 평균출고량(1일)으로 계산한 출고 가능 일수가 7일 미만인 품목(사용 중)이 하나라도 있는 브랜드 */
+function fulfillmentDaysLeft(it){
+  if(it.active===false) return null;
+  const avg = Number(it.avgOutbound), cur = Number(it.currentStock);
+  if(!(avg>0) || it.currentStock===''|| it.currentStock===undefined || it.currentStock===null || isNaN(cur)) return null;
+  return Math.max(0,cur)/avg;
+}
 function renderFulfillmentSoldoutBar(){
   const f = ensureFulfillment();
   const map = {};
@@ -3886,8 +3892,8 @@ function renderFulfillmentInboundCalc(){
           <th class="num">현재고</th><th class="num" title="1일 평균 출고량">평균출고량(일)</th><th class="num">기준일</th><th class="num">입고수량(EA)</th><th class="num">입고수(BOX)</th>
         </tr></thead>
         <tbody>
-          ${rows.map(({it,ea,box})=>`
-            <tr>
+          ${rows.map(({it,ea,box})=>{ const dl = fulfillmentDaysLeft(it); const soon = dl!==null && dl<7; return `
+            <tr style="${soon?'background:#FDECF0':''}" ${soon?`title="출고 가능 ${dl.toFixed(1)}일 — 품절 임박"`:''}>
               <td>${it.brand||'-'}</td>
               <td>${it.itemCode||'-'}</td>
               <td>${it.itemBarcode||'-'}</td>
@@ -3899,7 +3905,7 @@ function renderFulfillmentInboundCalc(){
               <td class="num mono" style="font-weight:700">${ea===null?'-':ea.toLocaleString('ko-KR')}</td>
               <td class="num mono" style="font-weight:700">${box===null?'-':box.toLocaleString('ko-KR')}</td>
             </tr>
-          `).join('')}
+          `;}).join('')}
         </tbody>
         <tfoot>
           <tr style="background:#F4F5F7;font-weight:800">
