@@ -2676,7 +2676,7 @@ function renderGuideModal(){
 
           <div class="guide-h2" style="color:#F7B266">📦 풀필먼트 카테고리</div>
           <ul class="guide-ul">
-            <li><b style="color:#F7B266">입고량 계산</b> 현재고 · 평균출고량 · 기준일을 넣으면 필요한 입고 수량이 자동 계산돼요. 재고 불러오기를 누르면 현재고 · 평균출고량(1일 평균)이 자동으로 채워지고, 출고 가능 일수가 7일 미만인 브랜드는 품절 임박으로 표시돼요.</li>
+            <li><b style="color:#F7B266">입고량 계산</b> 현재고 · 평균출고량 · 기준일을 넣으면 필요한 입고 수량이 자동 계산돼요. 재고 불러오기를 누르면 N배송 기준 현재고 · 평균출고량(1일 평균)이 자동으로 채워지고, 출고 가능 일수가 7일 미만인 브랜드는 품절 임박으로 표시돼요.</li>
             <li><b style="color:#F7B266">품목 데이터</b> 상품코드 · 바코드 · 입수량 등 기본 정보를 관리해요.</li>
           </ul>
 
@@ -3509,86 +3509,43 @@ async function syncFulfillmentStock(){
   const btn = document.getElementById('stockSyncBtn');
   if(btn){ btn.disabled = true; btn.textContent = '불러오는 중…'; }
   try{
-    const codes = Array.from(new Set(f.items.map(it=>String(it.clCode||'').trim()).filter(Boolean)));
-    if(!codes.length) throw new Error('CL 코드가 있는 품목이 없어요');
-    const byCode = {}; let clAt = '';
-    for(let i=0;i<codes.length;i+=40){
-      const u = new URL(base);
-      u.searchParams.set('view','items');
-      u.searchParams.set('codes', codes.slice(i,i+40).join(','));
-      const r = await fetch(u.toString(), {cache:'no-store'});
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      const j = await r.json();
-      if(!j || j.ok===false) throw new Error((j && j.error) || '응답 오류');
-      clAt = j.cl_at || clAt;
-      (j.items||[]).forEach(x=>{ byCode[x.code] = x; });
-    }
+    // N배송 재고만 사용: 품목 바코드로 매칭해서 판매가능·최근 7일 주문을 가져온다 (CL 재고·출고는 쓰지 않음)
+    const u = new URL(base); u.searchParams.set('view','nship');
+    const r = await fetch(u.toString(), {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    if(!j || j.ok===false) throw new Error((j && j.error) || '응답 오류');
+    const byBar = {};
+    (j.items||[]).forEach(x=>{
+      const vals = []; (function walk(o){ if(o && typeof o==='object'){ Object.keys(o).forEach(k=>walk(o[k])); } else if(o!==null && o!==undefined) vals.push(String(o).trim()); })(x);
+      vals.forEach(v=>{ if(/^\d{8,14}$/.test(v) && !byBar[v]) byBar[v] = x; });
+    });
     let hit = 0, none = 0;
     f.items.forEach(it=>{
-      const c = String(it.clCode||'').trim();
-      if(!c) return;
-      const x = byCode[c];
-      let avail = '', out7 = '';
-      if(x && x.in_cl){ avail = Math.round(Number(x.avail)||0); out7 = Math.round((Number(x.daily_out)||0)*7); }
-      else if(x && x.name){ avail = 0; out7 = Math.round((Number(x.daily_out)||0)*7); }
-      if(avail==='') none++; else hit++;
-      it.stockAvail = avail; it.out7 = out7;
-      if(avail!==''){ it.currentStock = String(avail); it.avgOutbound = String(Math.round((Number(x && x.daily_out)||0)*10)/10); }
+      const bc = String(it.itemBarcode||'').trim();
+      if(!bc) return;
+      const x = byBar[bc];
+      if(x){
+        const n = x.totalAvailableInventoryNormalQuantity;
+        it.nStock = (n===null||n===undefined||n==='') ? '' : Math.round(Number(n)||0);
+        it.nOut7 = Math.round(Number(x.last7dOrderQuantity)||0);
+        // 입고량 계산: 현재고 = N배송 판매가능, 평균출고량(일) = 최근 7일 주문 ÷ 7
+        if(it.nStock!==''){ it.currentStock = String(it.nStock); it.avgOutbound = String(Math.round(it.nOut7/7*10)/10); }
+        hit++;
+      } else { none++; }
       touch(it);
     });
-    // N배송 재고: 바코드로 매칭 (서버 stock_share.php 에 view=nship 가 있어야 함)
-    let nHit = 0, nErr = '';
-    try{
-      const u = new URL(base); u.searchParams.set('view','nship');
-      const r = await fetch(u.toString(), {cache:'no-store'});
-      const j = await r.json();
-      if(!j || j.ok===false) throw new Error((j && j.error) || '응답 오류');
-      const byBar = {};
-      (j.items||[]).forEach(x=>{
-        const vals = []; (function walk(o){ if(o && typeof o==='object'){ Object.keys(o).forEach(k=>walk(o[k])); } else if(o!==null && o!==undefined) vals.push(String(o).trim()); })(x);
-        vals.forEach(v=>{ if(/^\d{8,14}$/.test(v) && !byBar[v]) byBar[v] = x; });
-      });
-      f.items.forEach(it=>{
-        const bc = String(it.itemBarcode||'').trim();
-        const x = bc && byBar[bc];
-        if(x){
-          const n = x.totalAvailableInventoryNormalQuantity;
-          it.nStock = (n===null||n===undefined||n==='') ? '' : Math.round(Number(n)||0);
-          it.nOut7 = Math.round(Number(x.last7dOrderQuantity)||0);
-          nHit++;
-        } else { it.nStock = ''; it.nOut7 = ''; }
-        touch(it);
-      });
-      f.nshipAt = j.nship_at || '';
-    }catch(e){ nErr = e.message; }
-    const d = clAt ? new Date(clAt) : null;
+    f.nshipAt = j.nship_at || '';
     const nd = f.nshipAt ? new Date(f.nshipAt) : null;
     const hm = (z)=> `${z.getMonth()+1}/${z.getDate()} ${String(z.getHours()).padStart(2,'0')}:${String(z.getMinutes()).padStart(2,'0')}`;
-    f.stockMsg = `재고 불러오기 완료: CL ${hit}개` + (none?`(정보 없음 ${none}개)`:'') + (nErr ? ` · N배송 못 가져옴(${nErr})` : ` · N배송 ${nHit}개`) + (d && !isNaN(d) ? ` · CL ${hm(d)} 수집` : '') + (!nErr && nd && !isNaN(nd) ? ` · N배송 ${hm(nd)} 수집` : '') + ' (실시간 아님)';
+    f.stockMsg = `재고 불러오기 완료: N배송 ${hit}개 갱신` + (none?` · 바코드가 N배송에 없는 품목 ${none}개`:'') + (nd && !isNaN(nd) ? ` · N배송 ${hm(nd)} 수집 기준(실시간 아님)` : '');
     saveState(); render();
   }catch(e){
     if(btn){ btn.disabled = false; btn.textContent = '재고 불러오기'; }
-    alert('재고를 불러오지 못했어요.\n\n'+e.message+'\n\n주소(공유키 포함)가 맞는지, 그리고 나스가 이 앱의 접근을 허용하는지 확인해주세요.');
+    alert('재고를 불러오지 못했어요.\n\n'+e.message+'\n\n주소(공유키 포함)가 맞는지, NAS의 stock_share.php 가 새 버전(view=nship 포함)인지, 나스가 이 앱의 접근을 허용하는지 확인해주세요.');
   }
 }
 
-/* 재고 연동 진단: 서버가 돌려주는 원본 값을 그대로 보여준다(수치가 다를 때 원인 확인용) */
-async function diagnoseStockSync(){
-  const base = getStockShareUrl();
-  const box = document.getElementById('stockDiagOut');
-  if(!base){ alert('먼저 재고 연동 주소를 저장해주세요.'); return; }
-  box.value = '불러오는 중…';
-  try{
-    const f = ensureFulfillment();
-    const its = f.items.filter(it=>it.clCode && (it.brand==='VSL3'||it.brand==='VSL'));
-    const codes = its.map(it=>String(it.clCode).trim());
-    const u = new URL(base); u.searchParams.set('view','items'); u.searchParams.set('codes', codes.join(','));
-    const r = await fetch(u.toString(), {cache:'no-store'});
-    const j = await r.json();
-    const out = {우리가_보낸_코드: its.map(it=>({품목명:it.itemName, CL코드:it.clCode, 앱에_저장된_재고:it.stockAvail, 앱에_저장된_7일출고:it.out7})), 서버_응답: j};
-    box.value = JSON.stringify(out,null,1);
-  }catch(e){ box.value = '실패: '+e.message; }
-}
 /* VSL 과 VSL3 는 같은 브랜드로 본다. 이미 있는 쪽 이름을 기준으로 맞춘다(둘 다 없으면 VSL3). */
 function normalizeFulfillmentBrand(b){
   if(b==='후에버' && ensureFulfillment().brandCarriers.some(x=>x.brand==='후')) return '후';
@@ -3878,7 +3835,7 @@ function renderFulfillmentInboundCalc(){
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
         <button class="btn ghost" id="stockSyncBtn" style="color:var(--text-primary)" onclick="syncFulfillmentStock()">📦 재고 불러오기</button>
-        <span class="helptext" style="margin:0">현재고(CL 재고)와 평균출고량(1일 평균, 최근 14일)이 자동으로 채워져요. 값은 직접 고쳐도 되고, 다시 불러오면 새 값으로 바뀌어요.</span>
+        <span class="helptext" style="margin:0">현재고(N배송 판매가능)와 평균출고량(N배송 최근 7일 주문 ÷ 7, 1일 평균)이 자동으로 채워져요. 값은 직접 고쳐도 되고, 다시 불러오면 새 값으로 바뀌어요.</span>
       </div>
       ${f.stockMsg ? `<div class="card" style="background:#EEF4FB;border-color:#C9DBF0;padding:8px 14px;font-size:12.5px;margin:8px 0 0">📦 ${f.stockMsg}<button class="copy-btn" style="float:right" onclick="ensureFulfillment().stockMsg='';saveState();render()">닫기</button></div>` : ''}
       ${rows.length===0 ? `<div class="empty">${f.items.length===0 ? '등록된 품목이 없습니다. 품목 데이터 메뉴에서 먼저 추가해주세요.' : '필터 조건에 맞는 품목이 없습니다.'}</div>` : `
@@ -3996,8 +3953,6 @@ function renderFulfillmentItems(){
       <div class="card" style="margin-top:8px">
         <div class="helptext" style="margin-top:0">관리부 재고 현황의 <b>stock_share.php 주소(공유키 s=… 포함)</b>를 붙여넣고 저장하세요. 이 주소는 이 컴퓨터에만 저장되고 서버로 동기화되지 않아요.</div>
         <div style="display:flex;gap:8px;margin-top:8px"><input id="stockUrlInput" class="row-input" style="text-align:left;flex:1" placeholder="https://…/stock_share.php?s=…" value="${getStockShareUrl().replace(/"/g,'&quot;')}"><button class="btn" onclick="saveStockShareUrl(document.getElementById('stockUrlInput').value)">저장</button></div>
-        <div style="margin-top:10px"><button class="btn ghost" style="color:var(--text-primary)" onclick="diagnoseStockSync()">🔍 연동 진단 (VSL3 원본 값 보기)</button></div>
-        <textarea id="stockDiagOut" readonly style="width:100%;height:160px;margin-top:8px;font-size:11px;font-family:monospace" placeholder="진단 버튼을 누르면 서버가 돌려준 원본 값이 여기에 나와요"></textarea>
       </div>
     </details>
     ${f.sheetV1Msg ? `<div class="card" style="background:#EAF6EE;border-color:#BFE3CC;padding:10px 16px;font-size:13px">✅ ${f.sheetV1Msg}<button class="copy-btn" style="float:right" onclick="ensureFulfillment().sheetV1Msg='';saveState();render()">닫기</button></div>` : ''}
@@ -4034,9 +3989,9 @@ function renderFulfillmentItems(){
       ${visibleItems.length===0 ? `<div class="empty">${f.items.length===0 ? '등록된 품목이 없습니다. 오른쪽 위 버튼으로 추가해보세요.' : '필터 조건에 맞는 품목이 없습니다.'}</div>` : `
       <table style="table-layout:fixed;width:100%">
         <colgroup>
-          <col style="width:46px"><col style="width:96px"><col style="width:110px"><col style="width:136px"><col><col style="width:60px"><col style="width:72px"><col style="width:124px"><col style="width:84px"><col style="width:104px"><col style="width:104px"><col style="width:30px">
+          <col style="width:46px"><col style="width:96px"><col style="width:110px"><col style="width:136px"><col><col style="width:60px"><col style="width:72px"><col style="width:124px"><col style="width:104px"><col style="width:104px"><col style="width:30px">
         </colgroup>
-        <thead><tr><th style="text-align:center">사용</th><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th class="num">PLT당 박스</th><th>CL 코드</th><th class="num" title="CL 창고 가용재고(하루 3번 수집)">CL 재고</th><th class="num" title="N배송 판매가능 수량(하루 3번 수집)">N배송 판매가능</th><th class="num" title="N배송 최근 7일 주문">N배송 7일 주문</th><th></th></tr></thead>
+        <thead><tr><th style="text-align:center">사용</th><th>브랜드</th><th>품목코드</th><th>품목바코드</th><th>품목명</th><th class="num">입수량</th><th class="num">PLT당 박스</th><th>CL 코드</th><th class="num" title="N배송 판매가능 수량(하루 3번 수집)">N배송 판매가능</th><th class="num" title="N배송 최근 7일 주문">N배송 7일 주문</th><th></th></tr></thead>
         <tbody>
           ${visibleItems.map(it=>`
             <tr style="${it.active===false?'opacity:.42;background:rgba(0,0,0,.04)':''}">
@@ -4053,7 +4008,6 @@ function renderFulfillmentItems(){
               <td class="num"><input class="row-input" type="number" value="${it.packQty||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','packQty',this.value)"></td>
               <td class="num"><input class="row-input" type="number" value="${it.pltBoxQty||''}" placeholder="0" onchange="updateFulfillmentItemField('${it.id}','pltBoxQty',this.value)"></td>
               <td><input class="row-input" style="text-align:left" value="${it.clCode||''}" onchange="updateFulfillmentItemField('${it.id}','clCode',this.value)"></td>
-              <td class="num mono">${it.stockAvail===undefined||it.stockAvail==='' ? '<span style="color:var(--text-secondary)">-</span>' : (it.stockAvail<=0 ? `<span style="color:#e01e1e;font-weight:700">${it.stockAvail}</span>` : Number(it.stockAvail).toLocaleString('ko-KR'))}</td>
               <td class="num mono">${it.nStock===undefined||it.nStock==='' ? '<span style="color:var(--text-secondary)">-</span>' : (it.nStock<=0 ? `<span style="color:#e01e1e;font-weight:700">${it.nStock}</span>` : Number(it.nStock).toLocaleString('ko-KR'))}</td>
               <td class="num mono">${it.nOut7===undefined||it.nOut7==='' ? '<span style="color:var(--text-secondary)">-</span>' : Number(it.nOut7).toLocaleString('ko-KR')}</td>
               <td><button class="btn-del" onclick="deleteFulfillmentItem('${it.id}')" title="삭제">✕</button></td>
