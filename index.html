@@ -5222,6 +5222,10 @@ const CHECKLIST_STATUS_COLORS = {
   '설정안함': {bg:'#EEF0F3', fg:'#6B7280'},
   '진행예정': {bg:'#FDF1DC', fg:'#B4790A'},
   '요청완료': {bg:'#F3EAFB', fg:'#7C4DFF'},
+  '요청중': {bg:'#FDF1DC', fg:'#B4790A'},
+  '완료': {bg:'#E4FAF3', fg:'#1FA588'},
+  '대기중': {bg:'#FDF1DC', fg:'#B4790A'},
+  '다운완료': {bg:'#E4FAF3', fg:'#1FA588'},
 };
 function checklistStatusStyle(v){
   const c = CHECKLIST_STATUS_COLORS[v];
@@ -5240,7 +5244,7 @@ const CHECKLIST_STATUS_FIELDS = [
 ];
 function newChecklistEntry(overrides){
   const base = {
-    id: uid(), promoName:'', brand:'', owner:'', deadline:'',
+    id: uid(), promoName:'', brand:'', owner:'', deadline:'', imageReq:'대기중',
     exposureDate:'', capture:false, sourceProposalId:null, sourceSelectionId:null,
     startDate:'', endDate:'', // 셋팅도우미에서 선정리스트와 정확히 매칭할 때 씀
   };
@@ -5368,13 +5372,24 @@ function toggleChecklistField(id, field){
 
 /* 셋팅 표에서 화면에 안 보이게 한 열 — 데이터는 그대로 남아 있어요(엑셀 가져오기도 그대로 읽어요) */
 const CHECKLIST_HIDDEN_FIELDS = ['stock','optionPrice','gfa'];
+const CHECKLIST_REQUEST_OPTIONS = ['요청중','완료'];
+/* 이미지 요청 등 4개 열의 상태값. 예전에 체크박스였던 값(true)은 '요청중'으로 본다 */
+function reqStatusOf(c, key){
+  const v = c[key];
+  if(key==='imageReq'){ // 이미지 요청: 기본값 '대기중'(값이 없거나 예전 체크값이면 대기중), 이미지 요청안을 받으면 '다운완료', '-'는 요청 대상에서 뺀 것
+    if(v==='none') return '';
+    if(v==='다운완료' || v==='완료') return '다운완료';
+    return '대기중';
+  }
+  if(v===true) return '요청중'; return v ? String(v) : '';
+}
 const CHECKLIST_REQUEST_FIELDS = [
-  {key:'imageReq', label:'이미지 요청', title:"체크한 항목은 위의 '이미지 요청안 다운로드'에 들어가요"},
+  {key:'imageReq', label:'이미지 요청', options:['대기중','다운완료'], blank:'none', title:"'대기중'인 항목이 위의 '이미지 요청안 다운로드'에 들어가고, 받으면 '다운완료'로 바뀌어요. 요청이 필요 없는 항목은 '-'로 바꾸세요"},
   {key:'shoppingStory', label:'쇼핑스토리'},
   {key:'rollingBanner', label:'롤링배너'},
   {key:'hotdealReq', label:'핫딜요청'},
 ];
-const CHECKLIST_COL_DEFAULTS = [22,150,100,96, 76,90,76,64,72,76, 76,84,76,76, 30,56]; // 이 배치를 쓰는 열 너비 저장 이름은 'checklist2'
+const CHECKLIST_COL_DEFAULTS = [22,150,100,96, 76,90,76,64,72,76, 84,84,84,84, 30,56]; // 이 배치를 쓰는 열 너비 저장 이름은 'checklist2'
 /* ---- 셋팅도우미 팝업: 셋팅 리스트의 프로모션명 옆 🔧 버튼으로 열림 ---- */
 let settingHelperOpenId = null; // 화면 전용 상태 — 현재 열려있는 셋팅 체크리스트 항목 id
 function openSettingHelper(checklistId){
@@ -5663,9 +5678,10 @@ function imgReqBlockSheet(model, nBlocks, widthC, widthD, fillFn){
   const lastRow = model.rows.reduce((a,r)=>Math.max(a,r.r),0);
   return model.head + `<dimension ref="B2:${imgReqColL(4*nBlocks)}${lastRow}"/>` + model.sv + model.sf + `<cols>${cols}</cols><sheetData>${rowsXml}</sheetData><mergeCells count="${merges.length}">${merges.map(r=>`<mergeCell ref="${r}"/>`).join('')}</mergeCells>` + model.tail + '</worksheet>';
 }
+function imgReqPending(c){ return reqStatusOf(c,'imageReq')==='대기중' && !c.ended; } // 이미지 요청안에 들어갈 항목
 function imgReqEntries(){
   const promo = ensurePromotion();
-  return sortByOrder(promo.checklist).filter(c=>c.imageReq).map(c=>{
+  return sortByOrder(promo.checklist).filter(imgReqPending).map(c=>{
     const sels = checklistSelectionsOf(c, promo);
     const items = [];
     sels.forEach(sel=>(sel.products||[]).forEach(p=>{
@@ -5746,7 +5762,8 @@ async function downloadImageRequest(){
     try{ const m = parseProductNameData(await fetchProductNameText(ensurePromotion().productSheetUrl, 6000)); if(Object.keys(m).length){ const pr = ensurePromotion(); pr.productNames = m; pr.productNamesAt = new Date().toLocaleString('ko-KR'); saveState(); } }catch(e){ /* 못 불러오면 저장해둔 데이터를 그대로 쓴다 */ }
   }
   const list = imgReqEntries();
-  if(!list.length){ alert('"이미지 요청" 칸에 체크된 항목이 없어요.'); return; }
+  if(!list.length){ alert('이미지 요청이 "대기중"인 항목이 없어요.'); return; }
+  if(list.length>10 && !confirm(`이미지 요청이 "대기중"인 항목 ${list.length}건을 모두 요청안에 넣어요.\n필요 없는 항목은 이미지 요청을 "-"로 바꾸면 빠져요.\n\n계속할까요?`)) return;
   const warn = [];
   const noSel = list.filter(it=>!it.items.length).map(it=>`${it.brand||'(브랜드 미정)'}·${it.promoName||'(제목 없음)'}`);
   if(noSel.length) warn.push('연결된 선정리스트 상품이 없어서 선정상품 탭이 비는 항목:\n  - '+noSel.join('\n  - '));
@@ -5760,10 +5777,8 @@ async function downloadImageRequest(){
   if(warn.length && !confirm(warn.join('\n\n')+'\n\n그대로 만들까요?')) return;
   try{
     triggerBlobDownload(await buildImageRequestBlob(list), `${ymdStr()}_이미지요청.xlsx`);
-    if(confirm('이미지 요청안을 받았어요.\n방금 받은 항목들의 "이미지 요청" 체크를 해제할까요?\n(해제하면 다음에 받을 때 이 항목들이 다시 들어가지 않아요)')){
-      list.forEach(it=>{ it.entry.imageReq = false; touch(it.entry); });
-      saveState(); render();
-    }
+    list.forEach(it=>{ it.entry.imageReq = '다운완료'; touch(it.entry); }); // 요청안에 들어간 항목만 '다운완료'로
+    saveState(); render();
   }catch(e){ alert('엑셀을 만들지 못했어요.\n\n'+e.message); }
 }
 
@@ -5782,7 +5797,7 @@ function renderPromoSettings(){
         <div class="sub">프로모션 선정 후 후속작업 체크리스트 · 제안리스트에서 "선정완료"를 체크하면 자동으로 맨 위에 추가돼요 (브랜드가 여러 개면 브랜드별로 각각 추가됩니다)</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button class="btn" style="background:#6C5CE7" onclick="downloadImageRequest()" title="'이미지 요청'에 체크한 항목들을 하나의 엑셀로 받아요">📥 이미지 요청안 다운로드${promo.checklist.filter(c=>c.imageReq).length ? ' ('+promo.checklist.filter(c=>c.imageReq).length+')' : ''}</button>
+        <button class="btn" style="background:#6C5CE7" onclick="downloadImageRequest()" title="이미지 요청이 '대기중'인 항목들을 하나의 엑셀로 받아요">📥 이미지 요청안 다운로드${promo.checklist.filter(imgReqPending).length ? ' ('+promo.checklist.filter(imgReqPending).length+')' : ''}</button>
         <button class="btn" onclick="addChecklistEntry()">+ 새 체크리스트 항목 추가</button>
       </div>
     </div>
@@ -5822,7 +5837,13 @@ function renderPromoSettings(){
                   ${CHECKLIST_STATUS_OPTIONS.map(o=>`<option value="${o}" ${o===c[f.key]?'selected':''}>${o}</option>`).join('')}
                 </select>
               </td>`).join('')}
-              ${CHECKLIST_REQUEST_FIELDS.map(f=>`<td style="text-align:center"><input type="checkbox" ${c[f.key]?'checked':''} onclick="toggleChecklistField('${c.id}','${f.key}')" ${f.title?`title="${f.title}"`:''}></td>`).join('')}
+              ${CHECKLIST_REQUEST_FIELDS.map(f=>{ const rv = reqStatusOf(c, f.key); return `
+              <td>
+                <select class="sheet-input kb-copy-select" data-kb-id="${c.id}" data-kb-field="${f.key}" onkeydown="handleSelectCellKeydown(event,'${c.id}','${f.key}')" onfocus="lastFocusedSelectKey={id:'${c.id}',field:'${f.key}'}" style="${checklistStatusStyle(rv)}" ${f.title?`title="${f.title}"`:''} onchange="updateChecklistField('${c.id}','${f.key}',this.value)">
+                  <option value="${f.blank||''}">-</option>
+                  ${(f.options||CHECKLIST_REQUEST_OPTIONS).map(o=>`<option value="${o}" ${o===rv?'selected':''}>${o}</option>`).join('')}
+                </select>
+              </td>`; }).join('')}
               <td><button class="btn-del" onclick="deleteChecklistEntry('${c.id}')" title="삭제">✕</button></td>
               <td style="text-align:center"><input type="checkbox" ${c.ended?'checked':''} onclick="toggleChecklistField('${c.id}','ended')" title="종료 처리하면 회색으로 표시돼요"></td>
             </tr>`;
@@ -5830,7 +5851,7 @@ function renderPromoSettings(){
         </tbody>
       </table>
     </div>
-    <div class="helptext">⠿ 드래그로 순서를 바꿀 수 있고, 열 머리글 오른쪽 끝을 드래그하면 너비를 조절할 수 있어요. 브랜드·담당자 목록 관리는 왼쪽 메뉴의 "관리"에서 하실 수 있어요. "이미지 요청"에 체크한 항목들은 위의 <b>이미지 요청안 다운로드</b> 버튼으로 하나의 엑셀 파일로 받을 수 있어요.</div>
+    <div class="helptext">⠿ 드래그로 순서를 바꿀 수 있고, 열 머리글 오른쪽 끝을 드래그하면 너비를 조절할 수 있어요. 브랜드·담당자 목록 관리는 왼쪽 메뉴의 "관리"에서 하실 수 있어요. "이미지 요청"이 <b>대기중</b>인 항목(종료 처리한 항목 제외)은 위의 <b>이미지 요청안 다운로드</b> 버튼으로 하나의 엑셀 파일로 받을 수 있고, 받은 항목은 자동으로 <b>다운완료</b>로 바뀌어요. 요청이 필요 없는 항목은 이미지 요청을 <b>-</b>로 바꿔두세요.</div>
     ${renderSettingHelperModal()}
   `;
 }
