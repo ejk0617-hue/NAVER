@@ -5366,7 +5366,15 @@ function toggleChecklistField(id, field){
   saveState(); render();
 }
 
-const CHECKLIST_COL_DEFAULTS = [22,150,100,100,96, 76,90,76,64,76,64,72,76,64, 76, 30, 56];
+/* 셋팅 표에서 화면에 안 보이게 한 열 — 데이터는 그대로 남아 있어요(엑셀 가져오기도 그대로 읽어요) */
+const CHECKLIST_HIDDEN_FIELDS = ['stock','optionPrice','gfa'];
+const CHECKLIST_REQUEST_FIELDS = [
+  {key:'imageReq', label:'이미지 요청', title:"체크한 항목은 위의 '이미지 요청안 다운로드'에 들어가요"},
+  {key:'shoppingStory', label:'쇼핑스토리'},
+  {key:'rollingBanner', label:'롤링배너'},
+  {key:'hotdealReq', label:'핫딜요청'},
+];
+const CHECKLIST_COL_DEFAULTS = [22,150,100,96, 76,90,76,64,72,76, 76,84,76,76, 30,56]; // 이 배치를 쓰는 열 너비 저장 이름은 'checklist2'
 /* ---- 셋팅도우미 팝업: 셋팅 리스트의 프로모션명 옆 🔧 버튼으로 열림 ---- */
 let settingHelperOpenId = null; // 화면 전용 상태 — 현재 열려있는 셋팅 체크리스트 항목 id
 function openSettingHelper(checklistId){
@@ -5441,6 +5449,10 @@ function renderSettingHelperModal(){
         <button class="modal-close" onclick="closeSettingHelper()" title="닫기">✕</button>
         <div class="modal-title-row">
           <div class="modal-title">${entry.promoName||'(제목 없음)'}_${entry.brand||'(브랜드 미정)'}</div>
+          <div style="display:flex;align-items:center;gap:4px;margin-left:8px;flex:0 1 230px;min-width:150px">
+            <input type="text" class="row-input" style="text-align:left;font-size:11.5px;padding:3px 7px;height:26px" placeholder="쇼핑스토리 링크" title="쇼핑스토리 링크 주소" value="${(entry.shoppingStoryLink||'').replace(/"/g,'&quot;')}" onchange="updateChecklistField('${entry.id}','shoppingStoryLink',this.value.trim())">
+            ${entry.shoppingStoryLink ? `<button class="copy-btn" style="flex-shrink:0" onclick="copyProductLink('${String(entry.shoppingStoryLink).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}', this)">복사</button>` : ''}
+          </div>
           <div class="modal-sales-group">
             <div class="modal-event-sales">
               <label>목표 매출</label>
@@ -5757,7 +5769,8 @@ async function downloadImageRequest(){
 
 function renderPromoSettings(){
   const promo = ensurePromotion();
-  const colLabels = ['','프로모션명','브랜드','담당자','셋팅기한', ...CHECKLIST_STATUS_FIELDS.map(f=>f.label), '이미지 요청','','종료'];
+  const visibleStatusFields = CHECKLIST_STATUS_FIELDS.filter(f=>!CHECKLIST_HIDDEN_FIELDS.includes(f.key));
+  const colLabels = ['','프로모션명','브랜드','셋팅기한', ...visibleStatusFields.map(f=>f.label), ...CHECKLIST_REQUEST_FIELDS.map(f=>f.label),'','종료'];
   const brandsInUse = brandsInUseFor(promo.checklist);
   const visibleChecklist = sortByOrder(promo.checklist).filter(c=> !c.brand || isBrandVisibleIn('checklistFilter', c.brand));
 
@@ -5776,16 +5789,15 @@ function renderPromoSettings(){
 
     ${renderBrandFilterBar('checklistFilter', brandsInUse)}
 
-    <div class="sheet-wrap" id="sheetWrap_checklist">
+    <div class="sheet-wrap" id="sheetWrap_checklist2">
       <table class="sheet-table">
-        ${renderColGroup('checklist', CHECKLIST_COL_DEFAULTS)}
+        ${renderColGroup('checklist2', CHECKLIST_COL_DEFAULTS)}
         <thead>
-          <tr>${colLabels.map((label,i)=>`<th>${label}${colResizerHtml('checklist',i)}</th>`).join('')}</tr>
+          <tr>${colLabels.map((label,i)=>`<th>${label}${colResizerHtml('checklist2',i)}</th>`).join('')}</tr>
         </thead>
         <tbody>
           ${visibleChecklist.length===0 ? `<tr><td colspan="${colLabels.length}"><div class="empty">${promo.checklist.length===0 ? '등록된 체크리스트 항목이 없습니다. 제안리스트에서 "선정완료"를 체크하거나, 위 버튼으로 직접 추가해보세요.' : '필터 조건에 맞는 항목이 없습니다.'}</div></td></tr>` : visibleChecklist.map((c,idx)=>{
             const brandOptions = promoOptionSet(promo.brands, c.brand);
-            const ownerOptions = promoOptionSet(promo.owners, c.owner);
             const rowClass = c.ended ? 'row-ended' : '';
             return `
             <tr class="${rowClass}" ondragover="sheetDragOverRow(event)" ondragleave="sheetDragLeaveRow(event)" ondrop="sheetDropRow(event,'checklist','${c.id}')">
@@ -5802,21 +5814,15 @@ function renderPromoSettings(){
                   ${brandOptions.map(b=>`<option value="${b}" ${b===c.brand?'selected':''}>${b}</option>`).join('')}
                 </select>
               </td>
-              <td>
-                <select class="sheet-input kb-copy-select" data-kb-id="${c.id}" data-kb-field="owner" onkeydown="handleSelectCellKeydown(event,'${c.id}','owner')" onfocus="lastFocusedSelectKey={id:'${c.id}',field:'owner'}" onchange="updateChecklistField('${c.id}','owner',this.value)">
-                  <option value="">선택</option>
-                  ${ownerOptions.map(o=>`<option value="${o}" ${o===c.owner?'selected':''}>${o}</option>`).join('')}
-                </select>
-              </td>
               <td><input class="sheet-input" type="date" onpaste="handleDatePaste(event)" value="${c.deadline||''}" onchange="updateChecklistField('${c.id}','deadline',this.value)"></td>
-              ${CHECKLIST_STATUS_FIELDS.map(f=>`
+              ${visibleStatusFields.map(f=>`
               <td>
                 <select class="sheet-input kb-copy-select" data-kb-id="${c.id}" data-kb-field="${f.key}" onkeydown="handleSelectCellKeydown(event,'${c.id}','${f.key}')" onfocus="lastFocusedSelectKey={id:'${c.id}',field:'${f.key}'}" style="${checklistStatusStyle(c[f.key])}" onchange="updateChecklistField('${c.id}','${f.key}',this.value)">
                   <option value="">-</option>
                   ${CHECKLIST_STATUS_OPTIONS.map(o=>`<option value="${o}" ${o===c[f.key]?'selected':''}>${o}</option>`).join('')}
                 </select>
               </td>`).join('')}
-              <td style="text-align:center"><input type="checkbox" ${c.imageReq?'checked':''} onclick="toggleChecklistField('${c.id}','imageReq')" title="체크한 항목은 위의 '이미지 요청안 다운로드'에 들어가요"></td>
+              ${CHECKLIST_REQUEST_FIELDS.map(f=>`<td style="text-align:center"><input type="checkbox" ${c[f.key]?'checked':''} onclick="toggleChecklistField('${c.id}','${f.key}')" ${f.title?`title="${f.title}"`:''}></td>`).join('')}
               <td><button class="btn-del" onclick="deleteChecklistEntry('${c.id}')" title="삭제">✕</button></td>
               <td style="text-align:center"><input type="checkbox" ${c.ended?'checked':''} onclick="toggleChecklistField('${c.id}','ended')" title="종료 처리하면 회색으로 표시돼요"></td>
             </tr>`;
