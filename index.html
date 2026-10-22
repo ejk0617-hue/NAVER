@@ -5244,7 +5244,7 @@ const CHECKLIST_STATUS_FIELDS = [
 ];
 function newChecklistEntry(overrides){
   const base = {
-    id: uid(), promoName:'', brand:'', owner:'', deadline:'', imageReq:'대기중',
+    id: uid(), promoName:'', brand:'', owner:'', deadline:'',
     exposureDate:'', capture:false, sourceProposalId:null, sourceSelectionId:null,
     startDate:'', endDate:'', // 셋팅도우미에서 선정리스트와 정확히 매칭할 때 씀
   };
@@ -5376,15 +5376,11 @@ const CHECKLIST_REQUEST_OPTIONS = ['요청중','완료'];
 /* 이미지 요청 등 4개 열의 상태값. 예전에 체크박스였던 값(true)은 '요청중'으로 본다 */
 function reqStatusOf(c, key){
   const v = c[key];
-  if(key==='imageReq'){ // 이미지 요청: 기본값 '대기중'(값이 없거나 예전 체크값이면 대기중), 이미지 요청안을 받으면 '다운완료', '-'는 요청 대상에서 뺀 것
-    if(v==='none') return '';
-    if(v==='다운완료' || v==='완료') return '다운완료';
-    return '대기중';
-  }
+  if(key==='imageReq') return (v===true || v==='요청중') ? '요청중' : ''; // 이미지 요청은 체크박스(체크 = 요청안에 포함)
   if(v===true) return '요청중'; return v ? String(v) : '';
 }
 const CHECKLIST_REQUEST_FIELDS = [
-  {key:'imageReq', label:'이미지 요청', options:['대기중','다운완료'], blank:'none', title:"'대기중'인 항목이 위의 '이미지 요청안 다운로드'에 들어가고, 받으면 '다운완료'로 바뀌어요. 요청이 필요 없는 항목은 '-'로 바꾸세요"},
+  {key:'imageReq', label:'이미지 요청', checkbox:true, title:"체크한 항목만 위의 '이미지 요청안 다운로드'에 들어가요. 받으면 배너셋팅이 '요청완료'로 바뀌어요"},
   {key:'shoppingStory', label:'쇼핑스토리'},
   {key:'rollingBanner', label:'롤링배너'},
   {key:'hotdealReq', label:'핫딜요청'},
@@ -5678,7 +5674,7 @@ function imgReqBlockSheet(model, nBlocks, widthC, widthD, fillFn){
   const lastRow = model.rows.reduce((a,r)=>Math.max(a,r.r),0);
   return model.head + `<dimension ref="B2:${imgReqColL(4*nBlocks)}${lastRow}"/>` + model.sv + model.sf + `<cols>${cols}</cols><sheetData>${rowsXml}</sheetData><mergeCells count="${merges.length}">${merges.map(r=>`<mergeCell ref="${r}"/>`).join('')}</mergeCells>` + model.tail + '</worksheet>';
 }
-function imgReqPending(c){ return reqStatusOf(c,'imageReq')==='대기중' && !c.ended; } // 이미지 요청안에 들어갈 항목
+function imgReqPending(c){ return reqStatusOf(c,'imageReq')==='요청중' && !c.ended; } // 이미지 요청안에 들어갈 항목
 function imgReqEntries(){
   const promo = ensurePromotion();
   return sortByOrder(promo.checklist).filter(imgReqPending).map(c=>{
@@ -5762,8 +5758,8 @@ async function downloadImageRequest(){
     try{ const m = parseProductNameData(await fetchProductNameText(ensurePromotion().productSheetUrl, 6000)); if(Object.keys(m).length){ const pr = ensurePromotion(); pr.productNames = m; pr.productNamesAt = new Date().toLocaleString('ko-KR'); saveState(); } }catch(e){ /* 못 불러오면 저장해둔 데이터를 그대로 쓴다 */ }
   }
   const list = imgReqEntries();
-  if(!list.length){ alert('이미지 요청이 "대기중"인 항목이 없어요.'); return; }
-  if(list.length>10 && !confirm(`이미지 요청이 "대기중"인 항목 ${list.length}건을 모두 요청안에 넣어요.\n필요 없는 항목은 이미지 요청을 "-"로 바꾸면 빠져요.\n\n계속할까요?`)) return;
+  if(!list.length){ alert('"이미지 요청"을 체크한 항목이 없어요.'); return; }
+  
   const warn = [];
   const noSel = list.filter(it=>!it.items.length).map(it=>`${it.brand||'(브랜드 미정)'}·${it.promoName||'(제목 없음)'}`);
   if(noSel.length) warn.push('연결된 선정리스트 상품이 없어서 선정상품 탭이 비는 항목:\n  - '+noSel.join('\n  - '));
@@ -5777,7 +5773,7 @@ async function downloadImageRequest(){
   if(warn.length && !confirm(warn.join('\n\n')+'\n\n그대로 만들까요?')) return;
   try{
     triggerBlobDownload(await buildImageRequestBlob(list), `${ymdStr()}_이미지요청.xlsx`);
-    list.forEach(it=>{ it.entry.imageReq = '다운완료'; touch(it.entry); }); // 요청안에 들어간 항목만 '다운완료'로
+    list.forEach(it=>{ it.entry.bannerSetting = '요청완료'; touch(it.entry); }); // 요청안에 들어간 항목만 배너셋팅 '요청완료'로
     saveState(); render();
   }catch(e){ alert('엑셀을 만들지 못했어요.\n\n'+e.message); }
 }
@@ -5797,7 +5793,7 @@ function renderPromoSettings(){
         <div class="sub">프로모션 선정 후 후속작업 체크리스트 · 제안리스트에서 "선정완료"를 체크하면 자동으로 맨 위에 추가돼요 (브랜드가 여러 개면 브랜드별로 각각 추가됩니다)</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <button class="btn" style="background:#6C5CE7" onclick="downloadImageRequest()" title="이미지 요청이 '대기중'인 항목들을 하나의 엑셀로 받아요">📥 이미지 요청안 다운로드${promo.checklist.filter(imgReqPending).length ? ' ('+promo.checklist.filter(imgReqPending).length+')' : ''}</button>
+        <button class="btn" style="background:#6C5CE7" onclick="downloadImageRequest()" title="이미지 요청을 체크한 항목들을 하나의 엑셀로 받아요">📥 이미지 요청안 다운로드${promo.checklist.filter(imgReqPending).length ? ' ('+promo.checklist.filter(imgReqPending).length+')' : ''}</button>
         <button class="btn" onclick="addChecklistEntry()">+ 새 체크리스트 항목 추가</button>
       </div>
     </div>
@@ -5837,7 +5833,8 @@ function renderPromoSettings(){
                   ${CHECKLIST_STATUS_OPTIONS.map(o=>`<option value="${o}" ${o===c[f.key]?'selected':''}>${o}</option>`).join('')}
                 </select>
               </td>`).join('')}
-              ${CHECKLIST_REQUEST_FIELDS.map(f=>{ const rv = reqStatusOf(c, f.key); return `
+              ${CHECKLIST_REQUEST_FIELDS.map(f=>{ const rv = reqStatusOf(c, f.key); if(f.checkbox) return `
+              <td style="text-align:center"><input type="checkbox" ${rv?'checked':''} onclick="updateChecklistField('${c.id}','${f.key}',${rv?'false':'true'})" title="${f.title||''}"></td>`; return `
               <td>
                 <select class="sheet-input kb-copy-select" data-kb-id="${c.id}" data-kb-field="${f.key}" onkeydown="handleSelectCellKeydown(event,'${c.id}','${f.key}')" onfocus="lastFocusedSelectKey={id:'${c.id}',field:'${f.key}'}" style="${checklistStatusStyle(rv)}" ${f.title?`title="${f.title}"`:''} onchange="updateChecklistField('${c.id}','${f.key}',this.value)">
                   <option value="${f.blank||''}">-</option>
@@ -5851,7 +5848,7 @@ function renderPromoSettings(){
         </tbody>
       </table>
     </div>
-    <div class="helptext">⠿ 드래그로 순서를 바꿀 수 있고, 열 머리글 오른쪽 끝을 드래그하면 너비를 조절할 수 있어요. 브랜드·담당자 목록 관리는 왼쪽 메뉴의 "관리"에서 하실 수 있어요. "이미지 요청"이 <b>대기중</b>인 항목(종료 처리한 항목 제외)은 위의 <b>이미지 요청안 다운로드</b> 버튼으로 하나의 엑셀 파일로 받을 수 있고, 받은 항목은 자동으로 <b>다운완료</b>로 바뀌어요. 요청이 필요 없는 항목은 이미지 요청을 <b>-</b>로 바꿔두세요.</div>
+    <div class="helptext">⠿ 드래그로 순서를 바꿀 수 있고, 열 머리글 오른쪽 끝을 드래그하면 너비를 조절할 수 있어요. 브랜드·담당자 목록 관리는 왼쪽 메뉴의 "관리"에서 하실 수 있어요. "이미지 요청"을 <b>체크</b>한 항목(종료 처리한 항목 제외)만 위의 <b>이미지 요청안 다운로드</b> 버튼으로 엑셀 파일로 받을 수 있고, 받은 항목은 <b>배너셋팅</b>이 자동으로 <b>요청완료</b>로 바뀌어요.</div>
     ${renderSettingHelperModal()}
   `;
 }
