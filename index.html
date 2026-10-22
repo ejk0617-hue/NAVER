@@ -5524,6 +5524,76 @@ function setBrandBannerType(brand, type){
   rec.bannerType = (bannerTypeOf(brand)===type) ? '' : type; // 켜진 버튼을 다시 누르면 해제
   saveState(); render();
 }
+/* ---- 상품명 데이터(구글시트): 상품번호로 "간단" 상품명·정식 상품명을 찾아 이미지 요청안의 상품명을 다듬는다 (가격 열은 보지 않는다) ---- */
+function parseDelimitedRows(text){
+  const delim = text.includes('\t') ? '\t' : ',';
+  const rows = []; let row = [], cur = '', q = false;
+  for(let i=0;i<text.length;i++){
+    const ch = text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=ch; }
+    else if(ch==='"') q=true;
+    else if(ch===delim){ row.push(cur); cur=''; }
+    else if(ch==='\n'){ row.push(cur); rows.push(row); row=[]; cur=''; }
+    else if(ch!=='\r') cur+=ch;
+  }
+  if(cur!=='' || row.length){ row.push(cur); rows.push(row); }
+  return rows;
+}
+function parseProductNameData(text){
+  const rows = parseDelimitedRows(text||''); const out = {};
+  let hdr = null; // {code, name, short} 열 위치 — "상품번호"와 "상품명" 제목이 있는 행에서 읽는다
+  const isCode = (v)=> /^\d{8,}$/.test(String(v||'').trim());
+  const junk = (v)=>{ const t=String(v||'').trim(); return !t || /^[\d,.\s]+%?$/.test(t) || /^#/.test(t) || /^https?:/i.test(t); };
+  rows.forEach(r=>{
+    const ci = r.findIndex(v=>String(v).trim()==='상품번호'), ni = r.findIndex(v=>String(v).trim()==='상품명');
+    if(ci>=0 && ni>=0){ hdr = {code:ci, name:ni, short:r.findIndex(v=>String(v).trim()==='간단')}; return; }
+    let code = '', full = '', short = '';
+    if(hdr && isCode(r[hdr.code])){ code = String(r[hdr.code]).trim(); full = String(r[hdr.name]||'').trim(); short = hdr.short>=0 ? String(r[hdr.short]||'').trim() : ''; }
+    else {
+      const k = r.findIndex(isCode); if(k<0) return;
+      code = String(r[k]).trim();
+      const nm = r.slice(k+1).find(v=>!junk(v)); full = nm ? String(nm).trim() : '';
+    }
+    if(!code || (!full && !short)) return;
+    const prev = out[code] || {};
+    out[code] = {s: short || prev.s || '', n: full || prev.n || ''};
+  });
+  return out;
+}
+function productSheetFetchUrl(url){
+  const m = /\/d\/([A-Za-z0-9_-]+)/.exec(url||''); if(!m) return '';
+  const g = /[?&#]gid=(\d+)/.exec(url);
+  return `https://docs.google.com/spreadsheets/d/${m[1]}/gviz/tq?tqx=out:csv${g?'&gid='+g[1]:''}`;
+}
+async function fetchProductNameText(url, timeoutMs){
+  const fu = productSheetFetchUrl(url); if(!fu) throw new Error('구글시트 주소를 확인해주세요.');
+  const ac = new AbortController(); const tm = setTimeout(()=>ac.abort(), timeoutMs||10000);
+  try{
+    const res = await fetch(fu, {signal: ac.signal}); if(!res.ok) throw new Error('시트를 읽지 못했어요 ('+res.status+')');
+    return await res.text();
+  } finally { clearTimeout(tm); }
+}
+async function loadProductNamesFromSheet(btn){
+  const promo = ensurePromotion();
+  try{
+    if(btn){ btn.disabled = true; btn.textContent = '불러오는 중...'; }
+    const map = parseProductNameData(await fetchProductNameText(promo.productSheetUrl));
+    const n = Object.keys(map).length;
+    if(!n) throw new Error('상품번호·상품명을 찾지 못했어요. 시트 주소와 탭(gid)을 확인해주세요.');
+    promo.productNames = map; promo.productNamesAt = new Date().toLocaleString('ko-KR');
+    saveState(); render();
+  }catch(e){
+    if(btn){ btn.disabled = false; btn.textContent = '시트에서 불러오기'; }
+    alert('시트에서 불러오지 못했어요.\n\n'+e.message+'\n\n시트가 "링크가 있는 모든 사용자 보기"로 공유돼 있는지 확인하시고, 그래도 안 되면 아래 "직접 붙여넣기"를 이용해주세요.');
+  }
+}
+function applyPastedProductNames(){
+  const promo = ensurePromotion(); const el = document.getElementById('productNamePaste'); if(!el) return;
+  const map = parseProductNameData(el.value); const n = Object.keys(map).length;
+  if(!n){ alert('상품번호·상품명을 찾지 못했어요. 시트에서 상품번호와 상품명(간단 포함)이 들어 있는 칸을 복사해서 붙여넣어주세요.'); return; }
+  promo.productNames = Object.assign({}, promo.productNames||{}, map); promo.productNamesAt = new Date().toLocaleString('ko-KR');
+  saveState(); render(); alert(n+'개 상품을 반영했어요.');
+}
 function bgSearchOn(brand){ const rec = (ensurePromotion().brandLinks||{})[brand]; return !!(rec && rec.bgSearch); }
 function setBrandBgSearch(brand, on){
   const rec = ensureBrandLink(brand);
@@ -5588,7 +5658,8 @@ function imgReqEntries(){
     const items = [];
     sels.forEach(sel=>(sel.products||[]).forEach(p=>{
       if(!(String(p.code||'').trim() || String(p.name||'').trim())) return;
-      items.push({start:sel.startDate||'', end:sel.endDate||'', code:String(p.code||'').trim(), name:p.name||'',
+      const pn = (promo.productNames||{})[String(p.code||'').trim()];
+      items.push({start:sel.startDate||'', end:sel.endDate||'', code:String(p.code||'').trim(), name:(pn&&pn.n)||p.name||'', shortName:(pn&&(pn.s||pn.n))||p.name||'', known:!!pn,
         reg:p.regPrice, instant:p.instantDiscountPrice, final:p.finalBenefitPrice, rate:calcDiscountRate(p.regPrice, p.finalBenefitPrice)});
     }));
     const rates = items.map(i=>i.rate).filter(r=>r!==null);
@@ -5612,7 +5683,7 @@ async function buildImageRequestBlob(list){
     if(cell==='D10') return it.type ? BANNER_SIZES[it.type][1] : null;
     if(cell==='D13') return it.maxRate!==null ? `최대 ${it.maxRate}% OFF` : null;
     if(cell==='D17') return it.period || null;
-    const mm = /^D(2[1-3])$/.exec(cell); if(mm){ const x = it.items[+mm[1]-21]; return x ? (x.name||null) : null; }
+    const mm = /^D(2[1-3])$/.exec(cell); if(mm){ const x = it.items[+mm[1]-21]; return x ? (x.shortName||null) : null; }
     return null;
   });
   zip.file('xl/worksheets/sheet1.xml', bannerXml);
@@ -5629,7 +5700,7 @@ async function buildImageRequestBlob(list){
     const it = list[k];
     if(cell==='D5') return imgReqStoreName(it.brand);
     if(cell==='D16') return it.period || null;
-    const mm = /^([CD])(2[1-3])$/.exec(cell); if(mm){ const x = it.items[+mm[2]-21]; if(!x) return null; if(mm[1]==='D') return x.name||null; return /^\d+$/.test(x.code) ? Number(x.code) : (x.code||null); }
+    const mm = /^([CD])(2[1-3])$/.exec(cell); if(mm){ const x = it.items[+mm[2]-21]; if(!x) return null; if(mm[1]==='D') return x.shortName||null; return /^\d+$/.test(x.code) ? Number(x.code) : (x.code||null); }
     return null;
   }));
   // 3) 선정상품 탭
@@ -5659,11 +5730,17 @@ async function buildImageRequestBlob(list){
   return await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression:'DEFLATE'});
 }
 async function downloadImageRequest(){
+  if(ensurePromotion().productSheetUrl){
+    try{ const m = parseProductNameData(await fetchProductNameText(ensurePromotion().productSheetUrl, 6000)); if(Object.keys(m).length){ const pr = ensurePromotion(); pr.productNames = m; pr.productNamesAt = new Date().toLocaleString('ko-KR'); saveState(); } }catch(e){ /* 못 불러오면 저장해둔 데이터를 그대로 쓴다 */ }
+  }
   const list = imgReqEntries();
   if(!list.length){ alert('"이미지 요청" 칸에 체크된 항목이 없어요.'); return; }
   const warn = [];
   const noSel = list.filter(it=>!it.items.length).map(it=>`${it.brand||'(브랜드 미정)'}·${it.promoName||'(제목 없음)'}`);
   if(noSel.length) warn.push('연결된 선정리스트 상품이 없어서 선정상품 탭이 비는 항목:\n  - '+noSel.join('\n  - '));
+  const unknown = [...new Set(list.flatMap(it=>it.items.filter(x=>!x.known).map(x=>x.code||x.name)))];
+  if(!Object.keys(ensurePromotion().productNames||{}).length) warn.push('상품명 데이터(구글시트)가 아직 없어서 선정리스트의 상품명을 그대로 써요. (프로모션 > 관리 > 상품명 데이터에서 불러올 수 있어요)');
+  else if(unknown.length) warn.push('상품명 데이터에 없는 상품번호('+unknown.length+'개)는 선정리스트의 상품명을 그대로 써요:\n  '+unknown.slice(0,8).join(', ')+(unknown.length>8?' 외 '+(unknown.length-8)+'개':''));
   const over = list.filter(it=>it.items.length>3).map(it=>`${it.brand||'(브랜드 미정)'}·${it.promoName||'(제목 없음)'} (${it.items.length}개)`);
   if(over.length) warn.push('선정상품이 3개를 넘어서, 배너·이벤트 탭의 선정상품 리스트에는 앞의 3개만 들어가는 항목(선정상품 탭에는 모두 들어가요):\n  - '+over.join('\n  - '));
   const noType = [...new Set(list.filter(it=>!it.type).map(it=>it.brand||'(브랜드 미정)'))];
@@ -6101,6 +6178,29 @@ function renderPromoManage(){
           }).join('')}
         </tbody>
       </table>`}
+    </div>
+
+    <div class="card">
+      <h2>🧾 상품명 데이터 (구글시트)</h2>
+      <div class="helptext" style="margin-top:0">
+        이미지 요청안을 만들 때 <b>상품번호</b>로 이 데이터를 찾아서, 배너·이벤트 탭의 선정 상품 리스트에는 <b>간단</b> 상품명을, 선정상품 탭에는 <b>상품명</b>을 넣어요. (가격 열은 보지 않아요) 시트에 없는 상품은 선정리스트의 상품명을 그대로 써요.<br>
+        시트는 <b>링크가 있는 모든 사용자 보기</b>로 공유돼 있어야 하고, 주소에 탭 번호(<span class="mono">gid=…</span>)가 들어 있어야 해요. 이미지 요청안을 받을 때마다 시트를 다시 읽어 최신으로 맞춰요.
+      </div>
+      <div class="add-form" style="border-top:none;padding-top:0">
+        <div class="field" style="flex:1;min-width:280px"><label>상품명 시트 주소</label>
+          <input type="text" style="width:100%" placeholder="https://docs.google.com/spreadsheets/d/.../edit?gid=..." value="${promo.productSheetUrl||''}" onchange="updatePromoField('productSheetUrl', this.value.trim())">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <button class="btn ghost" style="color:var(--text-primary)" onclick="loadProductNamesFromSheet(this)">시트에서 불러오기</button>
+        <span style="font-size:12.5px;color:var(--text-secondary)">${Object.keys(promo.productNames||{}).length}개 상품 · ${promo.productNamesAt ? promo.productNamesAt+' 기준' : '아직 불러오지 않았어요'}</span>
+      </div>
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;font-size:12.5px;color:var(--text-secondary);font-weight:700">직접 붙여넣기 (불러오기가 안 될 때)</summary>
+        <div class="helptext" style="margin-top:10px">시트에서 <b>상품번호·상품명(·간단)</b>이 들어 있는 표 영역을 복사해서 아래에 붙여넣고 "반영"을 눌러주세요. 이미 있는 상품은 새 내용으로 바뀌고, 없던 상품은 추가돼요.</div>
+        <textarea id="productNamePaste" style="width:100%;height:110px;margin-top:8px;font-size:12px" placeholder="여기에 붙여넣기 (Ctrl+V)"></textarea>
+        <button class="btn" style="margin-top:6px" onclick="applyPastedProductNames()">반영</button>
+      </details>
     </div>
 
     <div class="card">
