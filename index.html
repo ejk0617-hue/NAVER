@@ -383,6 +383,7 @@
   .row-input.locked{color:var(--text-secondary);background:#FAFAFB;}
 
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:800;}
+  .dash-sec-title{margin:26px 0 12px;font-size:17px;font-weight:800;padding-left:10px;border-left:4px solid #2F6FED}
   .badge.ok{background:#DFF7F2;color:var(--positive);}
   .badge.warn{background:#FFF3D9;color:#B8790E;}
   .badge.danger{background:#FFE4E7;color:var(--negative);}
@@ -676,15 +677,7 @@ const MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12];
 
 /* 좌측 메뉴 구조: 대카테고리(그룹) + 중카테고리(하위 메뉴). type:'single'은 그룹 없이 단독 메뉴 */
 const NAV_GROUPS = [
-  {key:'ad', type:'group', label:'광고', color:'var(--c-shogeom)', children:[
-    {sectionKey:'shogeom',   label:'쇼검',     color:'var(--c-shogeom)'},
-    {sectionKey:'gfa',       label:'GFA',      color:'var(--c-gfa)'},
-    {sectionKey:'seosea',    label:'스스광고', color:'var(--c-seosea)'},
-    {sectionKey:'brgeom',    label:'브검',     color:'var(--c-brgeom)'},
-    {sectionKey:'bizwallet', label:'비즈월렛', color:'var(--c-bizwallet)'},
-    {sectionKey:'charge_all', label:'충전',     color:'#E8590C'},
-    {sectionKey:'draft',     label:'충전기안', color:'#4B5566'},
-  ]},
+  {key:'dashboard', type:'single', sectionKey:'dashboard', label:'대시보드', color:'#2F6FED'},
   {key:'promotion', type:'group', label:'프로모션', color:'#E0578C', children:[
     {sectionKey:'promo_calendar',  label:'캘린더',    color:'#E0578C'},
     {sectionKey:'promo_proposals', label:'제안리스트', color:'#F0932B'},
@@ -694,14 +687,23 @@ const NAV_GROUPS = [
     {sectionKey:'promo_stats',     label:'통계',      color:'#2F6FED'},
     {sectionKey:'promo_manage',    label:'관리',      color:'#576574'},
   ]},
-  {key:'live', type:'group', label:'라이브', color:'#00B8A9', children:[
-    {sectionKey:'live_calendar', label:'캘린더',    color:'#00B8A9'},
-    {sectionKey:'live_schedule', label:'라이브 일정', color:'#FF6B9D'},
-    {sectionKey:'live_performance', label:'라이브 현황', color:'#7C4DFF'},
+  {key:'ad', type:'group', label:'광고', color:'var(--c-shogeom)', children:[
+    {sectionKey:'charge_all', label:'충전',     color:'#E8590C'},
+    {sectionKey:'draft',     label:'충전기안', color:'#4B5566'},
+    {sectionKey:'shogeom',   label:'쇼검',     color:'var(--c-shogeom)'},
+    {sectionKey:'gfa',       label:'GFA',      color:'var(--c-gfa)'},
+    {sectionKey:'seosea',    label:'스스광고', color:'var(--c-seosea)'},
+    {sectionKey:'brgeom',    label:'브검',     color:'var(--c-brgeom)'},
+    {sectionKey:'bizwallet', label:'비즈월렛', color:'var(--c-bizwallet)'},
   ]},
   {key:'fulfillment', type:'group', label:'풀필먼트', color:'#0EA5A5', children:[
     {sectionKey:'fulfillment_inbound_calc', label:'입고량 계산', color:'#0EA5A5'},
     {sectionKey:'fulfillment_items',        label:'품목 데이터', color:'#0369A1'},
+  ]},
+  {key:'live', type:'group', label:'라이브', color:'#00B8A9', children:[
+    {sectionKey:'live_calendar', label:'캘린더',    color:'#00B8A9'},
+    {sectionKey:'live_schedule', label:'라이브 일정', color:'#FF6B9D'},
+    {sectionKey:'live_performance', label:'라이브 현황', color:'#7C4DFF'},
   ]},
   {key:'smartstore', type:'group', label:'스마트스토어', color:'#8B5CF6', children:[
     {sectionKey:'smartstore_sales', label:'매출 대시보드', color:'#8B5CF6'},
@@ -1299,7 +1301,7 @@ function handleRemoteStateUpdate(rawRemoteState){
       state.promotion.checklist = mergeById(state.promotion.checklist, serverPromo.checklist||[], mergedDeleted.checklist);
     }
     if(state.live) state.live.schedule = mergeById(state.live.schedule, serverLive.schedule||[], mergedDeleted.liveSchedule);
-    if(state.fulfillment) state.fulfillment.items = mergeById(state.fulfillment.items, serverFulfillment.items||[], mergedDeleted.fulfillmentItems);
+    if(state.fulfillment){ state.fulfillment.items = mergeById(state.fulfillment.items, serverFulfillment.items||[], mergedDeleted.fulfillmentItems); state.fulfillment.lastInbound = mergeLastInbound(state.fulfillment.lastInbound, serverFulfillment.lastInbound); }
     scheduleServerPush(); // 이렇게 합친 최신 내용을 다시 서버로 밀어올린다
   } else {
     // 서버가 로컬과 같거나 더 최신이면(다른 사람이 더 나중에 저장한 경우) 서버 내용을 기본으로 받아들이되,
@@ -1309,6 +1311,7 @@ function handleRemoteStateUpdate(rawRemoteState){
     const localChecklist = (state.promotion && state.promotion.checklist) || [];
     const localLiveSchedule = (state.live && state.live.schedule) || [];
     const localFulfillItems = (state.fulfillment && state.fulfillment.items) || [];
+    const localLastInbound = (state.fulfillment && state.fulfillment.lastInbound) || {};
     const localDeleted = ensureDeletedIds();
     const serverDeleted = remoteState.deletedIds || {};
     const mergedDeleted = {};
@@ -1323,7 +1326,7 @@ function handleRemoteStateUpdate(rawRemoteState){
       state.promotion.checklist = mergeById(localChecklist, state.promotion.checklist, mergedDeleted.checklist);
     }
     if(state.live) state.live.schedule = mergeById(localLiveSchedule, state.live.schedule, mergedDeleted.liveSchedule);
-    if(state.fulfillment) state.fulfillment.items = mergeById(localFulfillItems, state.fulfillment.items, mergedDeleted.fulfillmentItems);
+    if(state.fulfillment){ state.fulfillment.items = mergeById(localFulfillItems, state.fulfillment.items, mergedDeleted.fulfillmentItems); state.fulfillment.lastInbound = mergeLastInbound(localLastInbound, state.fulfillment.lastInbound); }
   }
   sanitizeStateArrays();
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
@@ -1496,7 +1499,7 @@ function ensureMonthEntry(sectionKey, key, m){
 /* =========================================================================
    라우팅 / 렌더
    ========================================================================= */
-let currentSection = 'promo_calendar';
+let currentSection = 'dashboard';
 let currentPick = {shogeom:shogeomAccounts()[0].id, gfa:gfaBrandsList()[0].id, seosea:seoseaBrandsList()[0], brgeom:brgeomBrandsList()[0].id, bizwallet:bizwalletBrandsList()[0]};
 let dashAdSectionOpen = false; // 대시보드 "광고 대시보드" 접이식 섹션 — 기본값은 닫힘
 function toggleDashAdSection(){ dashAdSectionOpen = !dashAdSectionOpen; render(); }
@@ -1513,7 +1516,11 @@ function ensureNavOrder(){
   NAV_GROUPS.forEach(g=>{ if(g.type==='group') defaultChildren[g.key] = g.children.map(c=>c.sectionKey); });
 
   if(!state.navOrder || typeof state.navOrder!=='object' || Array.isArray(state.navOrder)){
-    state.navOrder = {top:defaultTop.slice(), children:JSON.parse(JSON.stringify(defaultChildren))};
+    state.navOrder = {ver:3, top:defaultTop.slice(), children:JSON.parse(JSON.stringify(defaultChildren))};
+    return state.navOrder;
+  }
+  if(state.navOrder.ver!==3){ // 메뉴 구성이 바뀐 버전 — 예전에 저장된 순서는 새 기본 순서로 한 번만 초기화
+    state.navOrder = {ver:3, top:defaultTop.slice(), children:JSON.parse(JSON.stringify(defaultChildren))};
     return state.navOrder;
   }
   if(!Array.isArray(state.navOrder.top) || state.navOrder.top.length!==defaultTop.length || !defaultTop.every(k=>state.navOrder.top.includes(k))){
@@ -1648,6 +1655,7 @@ function render(){
   document.querySelectorAll('[id^="sheetWrap_"]').forEach(el=>{ prevSheetScrolls[el.id] = el.scrollTop; });
   const prevWindowScrollY = window.scrollY;
 
+  try{ if(brgeomAutoRoll()) saveState(); }catch(e){ console.error('브검 자동 연장 오류:', e); }
   try{
     renderNav();
   }catch(navErr){
@@ -3434,6 +3442,11 @@ function renderCategoryPlaceholder(title, color){
 /* =========================================================================
    풀필먼트 (입고량 계산 / 품목 데이터)
    ========================================================================= */
+function mergeLastInbound(a, b){ // 브랜드별로 더 늦은 날짜를 남긴다
+  const out = Object.assign({}, (a && typeof a==='object') ? a : {});
+  Object.keys((b && typeof b==='object') ? b : {}).forEach(k=>{ if(!out[k] || String(b[k])>String(out[k])) out[k] = b[k]; });
+  return out;
+}
 function ensureFulfillment(){
   if(!state.fulfillment || typeof state.fulfillment!=='object'){
     state.fulfillment = {
@@ -4015,6 +4028,13 @@ async function buildLotteNoticeBlob(group){
   const appf = zip.file('docProps/app.xml'); if(appf){ const a = await appf.async('string'); zip.file('docProps/app.xml', a.split('자이스').join(xmlEsc(sheetName))); }
   return await zip.generateAsync({type:'blob', compression:'DEFLATE', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
 }
+/* 브랜드별 최종 입고일: 확정 품목 엑셀(입고 등록 파일/거래명세서)을 받은 날짜를 브랜드별로 기록 */
+function recordInboundDownload(brand){
+  const f = ensureFulfillment();
+  if(!f.lastInbound || typeof f.lastInbound!=='object') f.lastInbound = {};
+  f.lastInbound[brand] = todayStr();
+  saveState();
+}
 function triggerBlobDownload(blob, name){
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
@@ -4036,6 +4056,7 @@ async function downloadCjFile(brandEnc, kind){
     const lotte = g.carrier==='lotte';
     if(kind==='reg') triggerBlobDownload(lotte ? buildLotteRegBlob(g) : await buildCjRegBlob(g), `입고등록_${brand}_${ymdStr()}.${lotte?'xls':'xlsx'}`);
     else triggerBlobDownload(lotte ? await buildLotteNoticeBlob(g) : await buildCjNoticeBlob(g), `거래명세서_${brand}_${ymdStr()}.xlsx`);
+    recordInboundDownload(brand);
     (__inbDl[brand] = __inbDl[brand]||{})[kind] = true;
     if(__inbDl[brand].reg && __inbDl[brand].notice){   // 두 파일을 다 받으면 이 브랜드의 확정을 비워서 다음 브랜드에 누적되지 않게 한다
       clearBrandConfirms(brand); delete __inbDl[brand];
@@ -4057,6 +4078,7 @@ async function downloadCjAllZip(){
       triggerBlobDownload(lotte ? buildLotteRegBlob(g) : await buildCjRegBlob(g), `입고등록_${g.brand}_${ymdStr()}.${lotte?'xls':'xlsx'}`);
       await wait(500);
       triggerBlobDownload(lotte ? await buildLotteNoticeBlob(g) : await buildCjNoticeBlob(g), `거래명세서_${g.brand}_${ymdStr()}.xlsx`);
+      recordInboundDownload(g.brand);
       await wait(500);
     }
     groups.forEach(g=>clearBrandConfirms(g.brand)); __inbDl = {};
@@ -8655,7 +8677,237 @@ function renderLiveCalendar(){
   `;
 }
 
+/* =========================================================================
+   대시보드 3종 (광고 / 프로모션 / 풀필먼트) — 알람 위주
+   ========================================================================= */
+const AD_LOW_BALANCE_LIMIT = 50000; // 광고비 현잔액이 이 금액 미만이면 소진 임박
+function dashEsc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function dashDaysBadge(days){
+  if(days<0) return `<span class="badge danger">${Math.abs(days)}일 경과</span>`;
+  if(days===0) return `<span class="badge danger">오늘</span>`;
+  return `<span class="badge warn">D-${days}</span>`;
+}
+function dashAlertCard(title, sub, count, bodyHtml, emptyMsg){
+  return `
+    <div class="card">
+      <h2>${title} ${sub?`<span style="font-weight:400;color:var(--text-secondary);font-size:12px">${sub}</span>`:''}
+        <span class="badge ${count?'danger':'ok'}" style="margin-left:6px">${count?count+'건':'이상 없음'}</span></h2>
+      ${count ? bodyHtml : `<div class="empty">${emptyMsg}</div>`}
+    </div>`;
+}
+/* 광고비 현잔액 < 5만원 목록 (충전 탭의 현잔액 기준: 쇼검·GFA·스스광고·비즈월렛. 브검은 잔액 개념이 없어 제외) */
+function adLowBalanceList(){
+  const p = ensureChargePlan(); const out = []; let blank = 0;
+  chargePlanRows().forEach(r=>{
+    if(r.adType==='brgeom') return;
+    const v = p.rows[chargePlanRowId(r)] || {};
+    let bal = (v.balance===undefined || v.balance==='') ? null : Number(v.balance);
+    if(bal===null && r.adType==='bizwallet'){ // 충전 탭에 잔액을 안 넣었어도 비즈월렛은 충전·소진 기록으로 계산한 잔액이 있다
+      const bw = ensureBizwallet();
+      if(bw.charges.some(c=>c.brand===r.key) || bw.usages.some(u=>u.brand===r.key) || bw.initialBalance[r.key]) bal = computeBizwalletBalance(r.key);
+    }
+    if(bal===null || isNaN(bal)){ blank++; return; }
+    if(bal < AD_LOW_BALANCE_LIMIT){
+      const avg = Number(v.avg)||0;
+      out.push({adName:r.adName, name:r.key, bal, daysLeft: avg>0 ? Math.max(0,bal)/avg : null});
+    }
+  });
+  out.sort((a,b)=>a.bal-b.bal);
+  return {list:out, blank};
+}
+/* 브검 종료 7일 전(만료 포함) 목록 */
+function brgeomRenewList(){
+  const cur = ensureBrgeomCurrentAll(); const today = new Date(); today.setHours(0,0,0,0); const out = [];
+  brgeomBrandsList().forEach(item=>{
+    const c = cur[item.id]; if(!c) return;
+    [['PC', c.pcEnd], ['모바일', c.mobileEnd]].forEach(([type,endStr])=>{
+      if(!endStr) return;
+      const end = new Date(endStr+'T00:00:00'); if(isNaN(end.getTime())) return;
+      const days = Math.round((end-today)/86400000);
+      if(days<=7) out.push({brand:item.id, type, end:endStr, days});
+    });
+  });
+  out.sort((a,b)=>a.days-b.days);
+  return out;
+}
+function renderAdDashboard(embed){
+  const {list:low, blank} = adLowBalanceList();
+  const renew = brgeomRenewList();
+  const p = ensureChargePlan();
+  return `
+    ${embed ? `<h2 class="dash-sec-title">📢 광고</h2>` : `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:var(--c-shogeom)22;color:var(--c-shogeom)">광고</span>
+        <h1>광고 대시보드</h1>
+        <div class="sub">광고비 소진 임박과 브랜드검색 갱신 임박을 한눈에 확인해요</div>
+      </div>
+    </div>
+`}
+
+    ${dashAlertCard('🔔 광고비 소진 임박', `(현잔액 ${(AD_LOW_BALANCE_LIMIT/10000)}만원 미만)`, low.length, `
+      <table>
+        <thead><tr><th>광고</th><th>브랜드/계정</th><th class="num">현잔액</th><th class="num">예상 소진까지</th><th></th></tr></thead>
+        <tbody>
+          ${low.map(x=>`
+            <tr class="${x.bal<=0?'brg-expired':'brg-warn'}">
+              <td>${dashEsc(x.adName)}</td>
+              <td><b>${dashEsc(x.name)}</b></td>
+              <td class="num mono ${valClass(x.bal)}">${formatWon(x.bal)}</td>
+              <td class="num">${x.daysLeft===null ? '<span style="color:var(--text-secondary)">-</span>' : (x.daysLeft<1 ? '<span class="badge danger">오늘 중</span>' : `약 ${x.daysLeft.toFixed(1)}일`)}</td>
+              <td style="text-align:right"><button class="copy-btn" onclick="navigate('charge_all')">충전하러 가기</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`, '현잔액이 5만원 미만인 광고가 없어요.')}
+    <div class="helptext" style="margin-top:-8px;margin-bottom:16px">충전 메뉴에 입력된 현잔액(쇼검·GFA·스스광고·비즈월렛) 기준이에요.${blank?` 현잔액이 비어 있는 항목 ${blank}개는 제외했어요 — 충전 메뉴에서 "잔액·소진 불러오기"를 누르면 채워져요.`:''}${p.lastSync?` · 마지막 불러오기: ${dashEsc(p.lastSync)}`:''}</div>
+
+    ${dashAlertCard('📅 브랜드검색 갱신 임박', '(종료 7일 전부터, 만료 포함)', renew.length, `
+      <table>
+        <thead><tr><th>브랜드</th><th>구분</th><th>종료일</th><th>남은 일수</th><th></th></tr></thead>
+        <tbody>
+          ${renew.map(x=>`
+            <tr class="${x.days<0?'brg-expired':'brg-warn'}">
+              <td><b>${dashEsc(x.brand)}</b></td>
+              <td>${x.type}</td>
+              <td>${x.end}</td>
+              <td>${dashDaysBadge(x.days)}</td>
+              <td style="text-align:right"><button class="copy-btn" onclick="currentPick.brgeom='${String(x.brand).replace(/'/g,"\\'")}';navigate('brgeom')">브검 보기</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`, '7일 안에 종료되는 브랜드검색광고가 없어요.')}
+  `;
+}
+
+/* 셋팅기한이 임박했는데 아직 끝내지 못한 셋팅 항목 (영업일 기준 3일 이내, 지난 것 포함) */
+function promoSettingDeadlineList(){
+  const promo = ensurePromotion(); const out = [];
+  const fields = CHECKLIST_STATUS_FIELDS.filter(f=>!CHECKLIST_HIDDEN_FIELDS.includes(f.key));
+  promo.checklist.forEach(c=>{
+    if(c.ended || !c.deadline) return;
+    const bd = businessDaysUntil(c.deadline);
+    if(bd===null || bd>3) return;
+    const pending = fields.filter(f=>{
+      if(f.key==='brgeom' && !bgSearchOn(c.brand)) return false; // 브검을 운영하지 않는 브랜드는 제외
+      const v = c[f.key]; return !v || v==='진행예정';
+    }).map(f=>f.label);
+    if(!pending.length) return; // 모두 끝났으면 알람에서 뺀다
+    out.push({promoName:c.promoName||'(제목 없음)', brand:c.brand||'-', deadline:c.deadline, bd, pending});
+  });
+  out.sort((a,b)=>a.bd-b.bd);
+  return out;
+}
+function renderPromoDashboard(embed){
+  const list = promoSettingDeadlineList();
+  return `
+    ${embed ? `<h2 class="dash-sec-title">🎉 프로모션</h2>` : `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:#E0578C22;color:#E0578C">프로모션</span>
+        <h1>프로모션 대시보드</h1>
+        <div class="sub">셋팅기한이 다가오는 프로모션을 한눈에 확인해요</div>
+      </div>
+    </div>
+`}
+
+    ${dashAlertCard('⏰ 셋팅기한 마감 임박', '(영업일 기준 3일 이내 · 기한이 지난 것 포함)', list.length, `
+      <table>
+        <thead><tr><th>프로모션명</th><th>브랜드</th><th>셋팅기한</th><th>남은 기간</th><th>아직 안 끝난 셋팅</th><th></th></tr></thead>
+        <tbody>
+          ${list.map(x=>`
+            <tr class="${x.bd<0?'brg-expired':'brg-warn'}">
+              <td><b>${dashEsc(x.promoName)}</b></td>
+              <td>${dashEsc(x.brand)}</td>
+              <td>${x.deadline}</td>
+              <td>${x.bd<0 ? `<span class="badge danger">기한 ${Math.abs(x.bd)}영업일 경과</span>` : (x.bd===0 ? `<span class="badge danger">오늘 마감</span>` : `<span class="badge warn">D-${x.bd}</span>`)}</td>
+              <td style="font-size:12.5px">${x.pending.map(dashEsc).join(' · ')}</td>
+              <td style="text-align:right"><button class="copy-btn" onclick="navigate('promo_settings')">셋팅 보기</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`, '마감이 임박한 셋팅이 없어요.')}
+    <div class="helptext" style="margin-top:-8px">셋팅 메뉴에서 "종료"로 처리했거나, 셋팅 항목(가격·배너셋팅·브검·사은품·썸네일·바이럴)이 모두 끝난 건은 보이지 않아요. 브검은 관리 메뉴에서 "브검 선택"한 브랜드만 확인해요.</div>
+  `;
+}
+
+function fulfillmentSoldoutList(){
+  const f = ensureFulfillment(); const map = {};
+  f.items.forEach(it=>{
+    if(it.active===false || !it.brand) return;
+    const dl = fulfillmentDaysLeft(it);
+    if(dl===null || dl>=7) return;
+    (map[it.brand] = map[it.brand]||[]).push({name:it.itemName||it.itemCode||'-', days:dl});
+  });
+  return fulfillmentBrandList().filter(b=>map[b]).map(b=>{ const items = map[b].sort((x,y)=>x.days-y.days); return {brand:b, items, min:items[0].days}; }).sort((a,b)=>a.min-b.min);
+}
+function renderFulfillmentDashboard(embed){
+  const f = ensureFulfillment();
+  const soon = fulfillmentSoldoutList();
+  const last = f.lastInbound || {};
+  const today = new Date(); today.setHours(0,0,0,0);
+  const brands = fulfillmentBrandList();
+  return `
+    ${embed ? `<h2 class="dash-sec-title">📦 풀필먼트</h2>` : `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:#0EA5A522;color:#0EA5A5">풀필먼트</span>
+        <h1>풀필먼트 대시보드</h1>
+        <div class="sub">재고 소진이 임박한 브랜드와 브랜드별 최종 입고일을 확인해요</div>
+      </div>
+    </div>
+`}
+
+    ${dashAlertCard('🚨 재고 소진 임박 브랜드', '(출고 가능 7일 미만 · 현재고 ÷ 평균출고량)', soon.length, `
+      <table>
+        <thead><tr><th>브랜드</th><th class="num">임박 품목</th><th class="num">가장 빠른 소진</th><th>품목</th><th></th></tr></thead>
+        <tbody>
+          ${soon.map(x=>`
+            <tr class="${x.min<3?'brg-expired':'brg-warn'}">
+              <td><b>${dashEsc(x.brand)}</b></td>
+              <td class="num mono">${x.items.length}개</td>
+              <td class="num"><span class="badge ${x.min<3?'danger':'warn'}">${x.min.toFixed(1)}일</span></td>
+              <td style="font-size:12.5px">${x.items.slice(0,3).map(i=>`${dashEsc(i.name)} <span style="color:var(--text-secondary)">(${i.days.toFixed(1)}일)</span>`).join('<br>')}${x.items.length>3?`<br><span style="color:var(--text-secondary)">외 ${x.items.length-3}개</span>`:''}</td>
+              <td style="text-align:right"><button class="copy-btn" onclick="navigate('fulfillment_inbound_calc')">입고량 계산</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`, '출고 가능 7일 미만인 품목이 없어요. (품목 데이터의 현재고·평균출고량이 입력된 품목 기준)')}
+
+    <div class="card">
+      <h2>📦 브랜드별 최종 입고일 <span style="font-weight:400;color:var(--text-secondary);font-size:12px">(확정 품목 엑셀을 다운로드한 날짜)</span></h2>
+      ${brands.length===0 ? `<div class="empty">등록된 브랜드가 없어요.</div>` : `
+      <table>
+        <thead><tr><th>브랜드</th><th>풀필먼트</th><th>최종 입고일</th><th class="num">경과</th></tr></thead>
+        <tbody>
+          ${brands.map(b=>{
+            const d = last[b]; let ago = '';
+            if(d){ const n = Math.round((today - new Date(d+'T00:00:00'))/86400000); ago = n<=0 ? '오늘' : n+'일 전'; }
+            return `<tr>
+              <td><b>${dashEsc(b)}</b></td>
+              <td>${dashEsc(fulfillmentCarrierOf(b)||'-')}</td>
+              <td>${d ? d : '<span style="color:var(--text-secondary)">기록 없음</span>'}</td>
+              <td class="num">${ago||'-'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+      <div class="helptext">입고량 계산 메뉴에서 <b>확정 품목 엑셀 다운로드</b>(입고 등록 파일·거래명세서)를 받으면 그 날짜가 브랜드별로 자동 기록돼요. 이 기능이 생기기 전의 입고는 "기록 없음"으로 보여요.</div>
+    </div>
+  `;
+}
+
 function renderDashboard(){
+  return `
+    <div class="page-header">
+      <div>
+        <h1>대시보드</h1>
+        <div class="sub">광고 · 프로모션 · 풀필먼트 알람을 한 화면에서 확인해요</div>
+      </div>
+      <button class="btn ghost" style="color:var(--text-primary)" onclick="openGuideModal()">📖 사용설명서</button>
+    </div>
+    ${renderAdDashboard(true)}
+    ${renderPromoDashboard(true)}
+    ${renderFulfillmentDashboard(true)}
+  `;
+}
+function renderOldDashboard(){
   const tm = todayMonth();
 
   // 쇼검 (계정별 이번 달 행 데이터도 함께 수집)
@@ -9251,6 +9503,27 @@ function ensureBrgeomCurrentAll(){
   });
   return state.brgeom.current;
 }
+/* 브검 자동 연장: 종료일이 지나면 다음 계약을 종료일 다음날부터 30일(예: 10/3 종료 → 10/4~11/2)로 자동 기입.
+   PC/모바일을 따로 계산하고, 충전금액은 그대로 둔다. 며칠 접속 안 했어도 오늘이 속한 계약 기간까지 이어서 계산한다. */
+function brgAddDays(str, n){
+  const t = Date.UTC(+str.slice(0,4), +str.slice(5,7)-1, +str.slice(8,10)) + n*86400000;
+  const d = new Date(t);
+  return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
+}
+function brgeomAutoRoll(){
+  if(!state.brgeom) return false;
+  const cur = ensureBrgeomCurrentAll(); const today = todayStr(); let changed = false;
+  Object.keys(cur).forEach(b=>{
+    const c = cur[b]; if(!c) return; let rolled = false;
+    [['pcStart','pcEnd'],['mobileStart','mobileEnd']].forEach(([sk,ek])=>{
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(c[ek]||'')) return;
+      let n = 0;
+      while(c[ek] < today && n++ < 120){ c[sk] = brgAddDays(c[ek], 1); c[ek] = brgAddDays(c[sk], 29); changed = true; rolled = true; }
+    });
+    if(rolled) c.autoRolledAt = today;
+  });
+  return changed;
+}
 function updateBrgeomCurrentField(brand, field, value){
   const current = ensureBrgeomCurrentAll();
   if(!current[brand]) current[brand] = {pcStart:'', pcEnd:'', pcAmount:'', mobileStart:'', mobileEnd:'', mobileAmount:''};
@@ -9265,7 +9538,7 @@ function renderBrgeom(){
       <div>
         <span class="eyebrow" style="background:var(--c-brgeom)22;color:var(--c-brgeom)">브검</span>
         <h1>브랜드검색광고 충전 관리</h1>
-        <div class="sub">브랜드별 현재 일정·충전금액을 바로 수정 · 종료 7일 전부터 강조 표시</div>
+        <div class="sub">브랜드별 현재 일정·충전금액을 바로 수정 · 종료 7일 전부터 강조 표시 · 종료일이 지나면 다음 30일(종료일 다음날~)로 자동 연장돼요</div>
       </div>
       <button class="btn" onclick="addAdBrand('brgeom')">+ 브랜드 추가</button>
     </div>
