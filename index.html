@@ -5253,6 +5253,7 @@ const CHECKLIST_STATUS_COLORS = {
   '진행예정': {bg:'#FDF1DC', fg:'#B4790A'},
   '요청완료': {bg:'#F3EAFB', fg:'#7C4DFF'},
   '요청중': {bg:'#FDF1DC', fg:'#B4790A'},
+  '수정요청': {bg:'#FDE8EC', fg:'#D6336C'},
   '완료': {bg:'#E4FAF3', fg:'#1FA588'},
   '대기중': {bg:'#FDF1DC', fg:'#B4790A'},
   '다운완료': {bg:'#E4FAF3', fg:'#1FA588'},
@@ -5411,7 +5412,7 @@ function reqStatusOf(c, key){
 }
 const CHECKLIST_REQUEST_FIELDS = [
   {key:'imageReq', label:'이미지 요청', checkbox:true, title:"체크한 항목만 위의 '이미지 요청안 다운로드'에 들어가요. 받으면 배너셋팅이 '요청완료'로 바뀌어요"},
-  {key:'shoppingStory', label:'쇼핑스토리'},
+  {key:'shoppingStory', label:'쇼핑스토리', options:['요청중','수정요청','완료']},
   {key:'rollingBanner', label:'롤링배너'},
   {key:'hotdealReq', label:'핫딜요청'},
 ];
