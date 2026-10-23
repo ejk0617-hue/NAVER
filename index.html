@@ -726,17 +726,16 @@ const AD_BRAND_LISTS_DEFAULT = {
     {id:'갸스비', account:'서정커머스_갸스비'},
     {id:'로버츠베리에', account:'theheiress:naver'},
     {id:'오스템/자이스', account:'인트리_오스템와픽, 자이스'},
-    {id:'에델코첸', account:'인트리홀딩스_에델코첸'},
     {id:'리틀타익스', account:'웰빙프라자_리틀타익스'},
     {id:'클레보스', account:'웰빙프라자_클레보스'},
   ],
-  seosea: ['VSL3','갸스비','리플클래식','에델코첸','자이스','오스템와픽','하늘비행','드롬팔스','원더비','그란츠','라움','덴탈프로','후','코어루틴','로버츠베리에','로트벡쉔','게이트맨'],
+  seosea: ['VSL3','갸스비','리플클래식','자이스','오스템와픽','하늘비행','드롬팔스','원더비','그란츠','라움','덴탈프로','후','코어루틴','로버츠베리에','로트벡쉔','게이트맨'],
   brgeom: [
     {id:'VSL3', note:'best3327 (SY)'},
     {id:'로버츠베리에', note:'best3327 (서정)'},
     {id:'로트벡쉔', note:'업체요청'},
   ],
-  bizwallet: ['VSL3','코어루틴','갸스비','게이트맨','그란츠','네이쳐스패밀리','뉴트리바이탈','덴탈프로','드롬팔스','라움365','로버츠베리에','로트벡쉔','리틀타익스','리플클래식','마조렛','아사아블로이','에델코첸','원더비','자이스','클레보스','하늘비행','후'],
+  bizwallet: ['VSL3','코어루틴','갸스비','게이트맨','그란츠','네이쳐스패밀리','뉴트리바이탈','덴탈프로','드롬팔스','라움365','로버츠베리에','로트벡쉔','리틀타익스','리플클래식','마조렛','아사아블로이','원더비','자이스','클레보스','하늘비행','후'],
 };
 function ensureAdBrandLists(){
   if(!state.adBrandLists || typeof state.adBrandLists!=='object'){
@@ -745,6 +744,13 @@ function ensureAdBrandLists(){
   Object.keys(AD_BRAND_LISTS_DEFAULT).forEach(k=>{
     if(!Array.isArray(state.adBrandLists[k])) state.adBrandLists[k] = [];
   });
+  if(!state.adBrandLists.migEdel1){ // 요청으로 GFA·스스광고·비즈월렛에서 에델코첸 삭제 (한 번만)
+    const al = state.adBrandLists;
+    al.gfa = al.gfa.filter(x=>x.id!=='에델코첸');
+    al.seosea = al.seosea.filter(x=>x!=='에델코첸');
+    al.bizwallet = al.bizwallet.filter(x=>x!=='에델코첸');
+    al.migEdel1 = true;
+  }
   return state.adBrandLists;
 }
 function shogeomAccounts(){ return ensureAdBrandLists().shogeom; }
@@ -8696,10 +8702,11 @@ function dashAlertCard(title, sub, count, bodyHtml, emptyMsg){
     </div>`;
 }
 /* 광고비 현잔액 < 5만원 목록 (충전 탭의 현잔액 기준: 쇼검·GFA·스스광고·비즈월렛. 브검은 잔액 개념이 없어 제외) */
+const AD_DASH_HIDE = ['코어루틴','게이트맨','아사아블로이']; // 대시보드 알람에서 제외하는 항목
 function adLowBalanceList(){
   const p = ensureChargePlan(); const out = []; let blank = 0;
   chargePlanRows().forEach(r=>{
-    if(r.adType==='brgeom') return;
+    if(r.adType==='brgeom' || AD_DASH_HIDE.includes(r.key)) return;
     const v = p.rows[chargePlanRowId(r)] || {};
     let bal = (v.balance===undefined || v.balance==='') ? null : Number(v.balance);
     if(bal===null && r.adType==='bizwallet'){ // 충전 탭에 잔액을 안 넣었어도 비즈월렛은 충전·소진 기록으로 계산한 잔액이 있다
@@ -8781,17 +8788,15 @@ function renderAdDashboard(embed){
 /* 셋팅기한이 임박했는데 아직 끝내지 못한 셋팅 항목 (영업일 기준 3일 이내, 지난 것 포함) */
 function promoSettingDeadlineList(){
   const promo = ensurePromotion(); const out = [];
-  const fields = CHECKLIST_STATUS_FIELDS.filter(f=>!CHECKLIST_HIDDEN_FIELDS.includes(f.key));
+  const today = new Date(); today.setHours(0,0,0,0);
   promo.checklist.forEach(c=>{
     if(c.ended || !c.deadline) return;
+    const dl = new Date(c.deadline+'T00:00:00'); if(isNaN(dl.getTime())) return;
+    if(Math.round((today-dl)/86400000) >= 2) return; // 기한이 2일 이상 지난 건은 자동으로 숨김
     const bd = businessDaysUntil(c.deadline);
     if(bd===null || bd>3) return;
-    const pending = fields.filter(f=>{
-      if(f.key==='brgeom' && !bgSearchOn(c.brand)) return false; // 브검을 운영하지 않는 브랜드는 제외
-      const v = c[f.key]; return !v || v==='진행예정';
-    }).map(f=>f.label);
-    if(!pending.length) return; // 모두 끝났으면 알람에서 뺀다
-    out.push({promoName:c.promoName||'(제목 없음)', brand:c.brand||'-', deadline:c.deadline, bd, pending});
+    if(c.price && c.price!=='진행예정') return; // 기준은 가격 셋팅만 — 가격이 끝났으면 알람에서 뺀다
+    out.push({promoName:c.promoName||'(제목 없음)', brand:c.brand||'-', deadline:c.deadline, bd});
   });
   out.sort((a,b)=>a.bd-b.bd);
   return out;
@@ -8809,9 +8814,9 @@ function renderPromoDashboard(embed){
     </div>
 `}
 
-    ${dashAlertCard('⏰ 셋팅기한 마감 임박', '(영업일 기준 3일 이내 · 기한이 지난 것 포함)', list.length, `
+    ${dashAlertCard('⏰ 셋팅기한 마감 임박', '(영업일 기준 3일 이내 · 가격 셋팅 기준)', list.length, `
       <table>
-        <thead><tr><th>프로모션명</th><th>브랜드</th><th>셋팅기한</th><th>남은 기간</th><th>아직 안 끝난 셋팅</th><th></th></tr></thead>
+        <thead><tr><th>프로모션명</th><th>브랜드</th><th>셋팅기한</th><th>남은 기간</th><th>가격 셋팅</th><th></th></tr></thead>
         <tbody>
           ${list.map(x=>`
             <tr class="${x.bd<0?'brg-expired':'brg-warn'}">
@@ -8819,12 +8824,12 @@ function renderPromoDashboard(embed){
               <td>${dashEsc(x.brand)}</td>
               <td>${x.deadline}</td>
               <td>${x.bd<0 ? `<span class="badge danger">기한 ${Math.abs(x.bd)}영업일 경과</span>` : (x.bd===0 ? `<span class="badge danger">오늘 마감</span>` : `<span class="badge warn">D-${x.bd}</span>`)}</td>
-              <td style="font-size:12.5px">${x.pending.map(dashEsc).join(' · ')}</td>
+              <td><span class="badge warn">미완료</span></td>
               <td style="text-align:right"><button class="copy-btn" onclick="navigate('promo_settings')">셋팅 보기</button></td>
             </tr>`).join('')}
         </tbody>
       </table>`, '마감이 임박한 셋팅이 없어요.')}
-    <div class="helptext" style="margin-top:-8px">셋팅 메뉴에서 "종료"로 처리했거나, 셋팅 항목(가격·배너셋팅·브검·사은품·썸네일·바이럴)이 모두 끝난 건은 보이지 않아요. 브검은 관리 메뉴에서 "브검 선택"한 브랜드만 확인해요.</div>
+    <div class="helptext" style="margin-top:-8px">셋팅 메뉴의 <b>가격</b> 항목이 비어 있거나 "진행예정"인 건만 보여요. 가격이 끝났거나, "종료"로 처리했거나, 셋팅기한이 2일 이상 지난 건은 자동으로 사라져요.</div>
   `;
 }
 
