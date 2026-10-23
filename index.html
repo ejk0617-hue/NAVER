@@ -383,6 +383,8 @@
   .row-input.locked{color:var(--text-secondary);background:#FAFAFB;}
 
   .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:800;}
+  tr.live-ended td{opacity:.45}
+  tr.live-ended:hover td{opacity:.85}
   .dash-sec-title{margin:26px 0 12px;font-size:17px;font-weight:800;padding-left:10px;border-left:4px solid #2F6FED}
   .badge.ok{background:#DFF7F2;color:var(--positive);}
   .badge.warn{background:#FFF3D9;color:#B8790E;}
@@ -7927,6 +7929,18 @@ function renderLiveBrandFilterBar(brands){
 }
 
 /* ---- 라이브 일정 ---- */
+/* 라이브 일정은 최신(가장 늦은 날짜)이 위로 오게 보여준다. 날짜를 아직 안 적은 새 줄은 맨 위. */
+function liveScheduleSorted(list){
+  return list.slice().sort((a,b)=> String(b.date||'9999-99-99').localeCompare(String(a.date||'9999-99-99')) || String(b.time||'').localeCompare(String(a.time||'')));
+}
+/* 이미 끝난 라이브: 시작 시각 + 2시간이 지났거나(시간이 없으면 날짜가 오늘 이전) */
+function liveScheduleEnded(s){
+  if(!s.date) return false;
+  const now = new Date();
+  if(!s.time) return s.date < todayStr();
+  const st = new Date(s.date+'T'+s.time+':00'); if(isNaN(st.getTime())) return s.date < todayStr();
+  return now.getTime() > st.getTime() + 2*3600*1000;
+}
 function addLiveSchedule(){
   const live = ensureLive();
   const newId = uid();
@@ -8419,7 +8433,12 @@ function renderLivePerformance(){
       </div>
     </div>
 
-    ${renderLiveSheetSyncCard()}
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div><b>🔄 나스 쇼핑라이브 분석에서 자동 반영 중</b>
+        <div class="helptext" style="margin:4px 0 0">앱을 열 때와 10분마다 브랜드별 회차 데이터(매출·쇼호스트·행사내용)를 가져와요${liveNasStatus.msg ? ' · '+liveNasStatus.msg+(liveNasStatus.at?' ('+liveNasStatus.at+' 확인)':'') : ''}</div></div>
+      <button class="btn" onclick="syncLiveFromNas(true)">🔄 나스에서 불러오기</button>
+    </div>
+    <details style="margin-bottom:14px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700;color:var(--text-secondary)">▸ 구글시트/엑셀로 가져오기 (예전 방식)</summary>${renderLiveSheetSyncCard()}</details>
     ${renderBrandFilterBar(filterKey, promo.brands)}
 
     ${rows.length===0 ? `<div class="card"><div class="empty">${live.performance.length===0 ? '아직 불러온 라이브 매출 데이터가 없어요. 위 "지금 불러오기" 버튼으로 추가해보세요.' : '브랜드 필터에 해당하는 데이터가 없어요.'}</div></div>` : `
@@ -8547,7 +8566,7 @@ function renderLiveSchedule(){
       <div>
         <span class="eyebrow" style="background:#FF6B9D22;color:#FF6B9D">라이브</span>
         <h1>라이브 일정</h1>
-        <div class="sub">⠿ 드래그로 순서 변경 · 여기에 일정을 넣으면 라이브 캘린더에 "브랜드(시간)" 형태로 자동 표시돼요</div>
+        <div class="sub">최신 일정이 위에 보이고 끝난 라이브는 흐리게 표시돼요 · 여기에 일정을 넣으면 라이브 캘린더에 "브랜드(시간)" 형태로 자동 표시돼요</div>
         <div class="sub" style="margin-top:3px">🔄 나스 쇼핑라이브 분석 자동 반영 중${liveNasStatus.msg ? ' · '+liveNasStatus.msg+(liveNasStatus.at?' ('+liveNasStatus.at+' 확인)':'') : ''}</div>
       </div>
       <div style="display:flex;gap:8px">
@@ -8567,12 +8586,12 @@ function renderLiveSchedule(){
           </tr>
         </thead>
         <tbody>
-          ${live.schedule.length===0 ? `<tr><td colspan="9"><div class="empty">등록된 라이브 일정이 없습니다. 오른쪽 위 버튼으로 추가해보세요.</div></td></tr>` : live.schedule.map((s,idx)=>{
+          ${live.schedule.length===0 ? `<tr><td colspan="9"><div class="empty">등록된 라이브 일정이 없습니다. 오른쪽 위 버튼으로 추가해보세요.</div></td></tr>` : liveScheduleSorted(live.schedule).map((s,idx)=>{
             const brandOptions = promoOptionSet(promo.brands, s.brand);
-            const rowClass = idx%2===1 ? 'row-alt' : '';
+            const rowClass = (idx%2===1 ? 'row-alt' : '') + (liveScheduleEnded(s) ? ' live-ended' : '');
             return `
-            <tr class="${rowClass}" ondragover="sheetDragOverRow(event)" ondragleave="sheetDragLeaveRow(event)" ondrop="sheetDropRow(event,'liveSchedule','${s.id}')">
-              <td class="sheet-drag-handle" draggable="true" ondragstart="sheetDragStart(event,'liveSchedule','${s.id}')" ondragend="sheetDragEnd()" title="드래그해서 순서 변경">⠿</td>
+            <tr class="${rowClass}">
+              <td class="sheet-readonly"></td>
               <td><input class="sheet-input" type="date" onpaste="handleDatePaste(event)" value="${s.date||''}" onchange="updateLiveScheduleField('${s.id}','date',this.value)"></td>
               <td class="sheet-readonly">${koreanWeekday(s.date)}</td>
               <td><input class="sheet-input" type="time" value="${s.time||''}" onchange="updateLiveScheduleField('${s.id}','time',this.value)"></td>
@@ -10453,11 +10472,37 @@ async function syncLiveFromNas(manual){
       added++;
     });
   }
+  // 라이브 현황(매출): 브랜드별 파일의 회차 데이터를 그대로 반영
+  let pAdded = 0, pFixed = 0;
+  {
+    const perf = live.performance;
+    brandFiles.forEach(({n, d})=>{
+      const brand = liveNasBrand(d.brand || n);
+      const skip = new Set((Array.isArray(d['제외회차'])?d['제외회차']:[]).map(x=>String(x && typeof x==='object' ? (x.id||'') : x)));
+      (Array.isArray(d['회차'])?d['회차']:[]).forEach(o=>{
+        const liveId = String(o.id||'').replace(/[^\d]/g,'').slice(0,8); const st = String(o.start||'');
+        const date = st.slice(0,10), time = st.slice(11,16);
+        if(!liveId || !date || skip.has(String(o.id))) return;
+        if(!promo.brands.includes(brand)) promo.brands.push(brand);
+        const prods = Object.keys(o['상품']||{}).map(k=>({name:k, amt:Number(o['상품'][k]['금액'])||0})).sort((a,b)=>b.amt-a.amt).slice(0,3);
+        const vals = {date, weekday:koreanWeekday(date), time, brand, host:String(o['쇼호스트']||'').trim(), content:String(o['행사내용']||'').trim(), sales:Number(o['매출'])||0};
+        let row = perf.find(x=>x.liveId===liveId) || perf.find(x=>!x.liveId && x.date===date && x.brand===brand && (!x.time || x.time===time));
+        if(!row){
+          perf.push({id:uid(), _importKey:'nas_'+liveId, liveId, ...vals, products:[0,1,2].map(i=>({name:prods[i]?prods[i].name:'', price:''}))});
+          pAdded++; return;
+        }
+        const before = JSON.stringify([row.date,row.time,row.brand,row.host,row.content,row.sales,row.liveId]);
+        Object.assign(row, vals, {liveId});
+        if(Array.isArray(row.products) && row.products.every(x=>!x.name && !x.price)) row.products = [0,1,2].map(i=>({name:prods[i]?prods[i].name:'', price:''}));
+        if(before !== JSON.stringify([row.date,row.time,row.brand,row.host,row.content,row.sales,row.liveId])) pFixed++;
+      });
+    });
+  }
   liveNasStatus.at = new Date().toTimeString().slice(0,5);
-  liveNasStatus.msg = `나스 기준 ${data.updated ? data.updated.replace('T',' ').slice(0,16) : ''} · 새 일정 ${added}건, 수정 ${fixed}건`;
-  if(added || fixed){ saveState(); }
-  if(manual) alert(`나스에서 라이브 일정을 반영했어요.\n새로 추가 ${added}건 · 수정 ${fixed}건`);
-  if(added || fixed || currentSection==='live_schedule' || currentSection==='live_calendar') render();
+  liveNasStatus.msg = `나스 기준 ${data.updated ? data.updated.replace('T',' ').slice(0,16) : ''} · 일정 새로 ${added}건·수정 ${fixed}건 / 현황 새로 ${pAdded}건·수정 ${pFixed}건`;
+  if(added || fixed || pAdded || pFixed){ saveState(); }
+  if(manual) alert(`나스에서 반영했어요.\n라이브 일정: 새로 ${added}건 · 수정 ${fixed}건\n라이브 현황: 새로 ${pAdded}건 · 수정 ${pFixed}건`);
+  if(added || fixed || pAdded || pFixed || ['live_schedule','live_calendar','live_performance'].includes(currentSection)) render();
 }
 
 /* =========================================================================
