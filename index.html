@@ -10371,23 +10371,27 @@ function renderDraft(){
    (schedule.json의 days[날짜].ours = [{brand, start, id}]). 이미 있는 일정은 라이브ID로 찾아 날짜·시간·브랜드만 맞추고
    행사내용 등 직접 적은 내용은 그대로 두며, 없는 일정만 새로 추가한다. 지운 일정은 다시 만들지 않는다.
    ========================================================================= */
-const LIVE_NAS_URLS = [
-  'https://intriholdings.synology.me/marketing_liveshopping/data/schedule.json',
-  'https://intriholdings.synology.me/marketing_liveshopping/cors.php',
-];
+const LIVE_NAS_BASE = 'https://intriholdings.synology.me/marketing_liveshopping/';
+/* name: 'schedule'(우리 브랜드 라이브 현황) 또는 '_plans'(앞으로 잡아둔 일정). 직접 읽어보고 막히면 cors.php를 거친다 */
+async function fetchLiveNas(name){
+  const urls = [LIVE_NAS_BASE+'data/'+name+'.json', LIVE_NAS_BASE+'cors.php?f='+name];
+  let err = '';
+  for(const u of urls){
+    try{
+      const r = await fetch(u + (u.includes('?')?'&':'?') + '_t=' + Date.now(), {cache:'no-store'});
+      if(!r.ok){ err = name+' ('+r.status+')'; continue; }
+      return {data: await r.json(), err:''};
+    }catch(e){ err = e.message || String(e); }
+  }
+  return {data:null, err};
+}
 let liveNasStatus = {at:'', msg:'', busy:false};
 function liveNasBrand(b){ return String(b||'').replace(/#/g,'').trim(); } // 'VSL#3' → 'VSL3'
 async function syncLiveFromNas(manual){
   if(liveNasStatus.busy) return;
   liveNasStatus.busy = true;
-  let data = null, lastErr = '';
-  for(const u of LIVE_NAS_URLS){
-    try{
-      const r = await fetch(u + '?_t=' + Date.now(), {cache:'no-store'});
-      if(!r.ok){ lastErr = u.split('/').pop()+' ('+r.status+')'; continue; }
-      data = await r.json(); break;
-    }catch(e){ lastErr = e.message || String(e); }
-  }
+  const [sc, pl] = await Promise.all([fetchLiveNas('schedule'), fetchLiveNas('_plans')]);
+  const data = sc.data, lastErr = sc.err, plans = pl.data;
   liveNasStatus.busy = false;
   if(!data || !data.days){
     liveNasStatus.msg = '나스에서 불러오지 못했어요 ('+lastErr+')';
@@ -10397,12 +10401,26 @@ async function syncLiveFromNas(manual){
   }
   const promo = ensurePromotion(); const live = ensureLive(); const del = ensureDeletedIds().liveSchedule;
   let added = 0, fixed = 0;
-  Object.keys(data.days).forEach(date=>{
-    (data.days[date].ours||[]).forEach(o=>{
+  const addPlanned = (o, brand)=>{ // 라이브ID가 아직 없는 예정 일정: 같은 날·같은 브랜드가 이미 있으면 건너뛰고, 없으면 추가
+    if(live.schedule.some(x=>x.date===o.date && x.brand===brand)) return;
+    const id = 'nasp_'+o.date+'_'+brand;
+    if(del[id]) return;
+    if(!promo.brands.includes(brand)) promo.brands.push(brand);
+    live.schedule.push(touch({id, importBatchId:'nas', date:o.date, time:o.start, liveId:'', brand, content:o.content||''}));
+    added++;
+  };
+  const items = [];
+  Object.keys(data.days).forEach(date=>{ (data.days[date].ours||[]).forEach(o=>items.push({date, brand:o.brand, start:String(o.start||'').slice(11,16), id:o.id})); });
+  (data.plans||[]).forEach(o=>items.push({date:o.date, brand:o.brand, start:o.time, id:o.id})); // 앞으로 잡힌 우리 라이브(plans)도 포함
+  // _plans.json: {브랜드:[{date,time,id,쇼호스트,행사}]} — 아직 라이브ID가 없는 예정 일정(11월 등)
+  if(plans && typeof plans==='object') Object.keys(plans).forEach(br=>{ (Array.isArray(plans[br])?plans[br]:[]).forEach(o=>{ if(o && o.date) items.push({date:o.date, brand:br, start:o.time||'', id:o.id||'', content:String(o['행사']||'').trim(), planned:true}); }); });
+  {
+    items.forEach(o=>{
       const liveId = String(o.id||'').replace(/[^\d]/g,'').slice(0,8);
       const brand = liveNasBrand(o.brand);
-      const time = String(o.start||'').slice(11,16);
-      if(!liveId || !brand) return;
+      if(o.planned && !liveId) return addPlanned(o, brand);
+      const time = o.start||''; const date = o.date;
+      if(!liveId || !brand || !date) return;
       let row = live.schedule.find(x=>String(x.liveId||'').trim()===liveId);
       if(!row) row = live.schedule.find(x=>!String(x.liveId||'').trim() && x.date===date && x.brand===brand); // 직접 적어둔 같은 날·같은 브랜드 일정에 라이브ID를 붙여준다
       if(row){
@@ -10417,7 +10435,7 @@ async function syncLiveFromNas(manual){
       live.schedule.push(touch({id, importBatchId:'nas', date, time, liveId, brand, content:''}));
       added++;
     });
-  });
+  }
   liveNasStatus.at = new Date().toTimeString().slice(0,5);
   liveNasStatus.msg = `나스 기준 ${data.updated ? data.updated.replace('T',' ').slice(0,16) : ''} · 새 일정 ${added}건, 수정 ${fixed}건`;
   if(added || fixed){ saveState(); }
