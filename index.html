@@ -10374,7 +10374,8 @@ function renderDraft(){
 const LIVE_NAS_BASE = 'https://intriholdings.synology.me/marketing_liveshopping/';
 /* name: 'schedule'(우리 브랜드 라이브 현황) 또는 '_plans'(앞으로 잡아둔 일정). 직접 읽어보고 막히면 cors.php를 거친다 */
 async function fetchLiveNas(name){
-  const urls = [LIVE_NAS_BASE+'data/'+name+'.json', LIVE_NAS_BASE+'cors.php?f='+name];
+  const en = encodeURIComponent(name);
+  const urls = [LIVE_NAS_BASE+'data/'+en+'.json', LIVE_NAS_BASE+'cors.php?f='+en];
   let err = '';
   for(const u of urls){
     try{
@@ -10392,6 +10393,14 @@ async function syncLiveFromNas(manual){
   liveNasStatus.busy = true;
   const [sc, pl] = await Promise.all([fetchLiveNas('schedule'), fetchLiveNas('_plans')]);
   const data = sc.data, lastErr = sc.err, plans = pl.data;
+  // 브랜드별 파일(data/브랜드.json): 회차(지난 라이브: 행사내용·라이브ID 포함)와 예정(앞으로 잡힌 라이브) — 브랜드 목록은 schedule.json·_plans.json에서 모은다
+  const brandFiles = [];
+  if(data){
+    const names = new Set(Object.keys(data.catOf||{}));
+    if(plans && typeof plans==='object') Object.keys(plans).forEach(b=>names.add(b));
+    const results = await Promise.all([...names].map(n=>fetchLiveNas(n).then(r=>({n, d:r.data})) ));
+    results.forEach(r=>{ if(r.d && typeof r.d==='object') brandFiles.push({n:r.n, d:r.d}); });
+  }
   liveNasStatus.busy = false;
   if(!data || !data.days){
     liveNasStatus.msg = '나스에서 불러오지 못했어요 ('+lastErr+')';
@@ -10402,7 +10411,8 @@ async function syncLiveFromNas(manual){
   const promo = ensurePromotion(); const live = ensureLive(); const del = ensureDeletedIds().liveSchedule;
   let added = 0, fixed = 0;
   const addPlanned = (o, brand)=>{ // 라이브ID가 아직 없는 예정 일정: 같은 날·같은 브랜드가 이미 있으면 건너뛰고, 없으면 추가
-    if(live.schedule.some(x=>x.date===o.date && x.brand===brand)) return;
+    const ex = live.schedule.find(x=>x.date===o.date && x.brand===brand);
+    if(ex){ if(o.content && !String(ex.content||'').trim()){ ex.content = o.content; touch(ex); fixed++; } return; }
     const id = 'nasp_'+o.date+'_'+brand;
     if(del[id]) return;
     if(!promo.brands.includes(brand)) promo.brands.push(brand);
@@ -10412,6 +10422,12 @@ async function syncLiveFromNas(manual){
   const items = [];
   Object.keys(data.days).forEach(date=>{ (data.days[date].ours||[]).forEach(o=>items.push({date, brand:o.brand, start:String(o.start||'').slice(11,16), id:o.id})); });
   (data.plans||[]).forEach(o=>items.push({date:o.date, brand:o.brand, start:o.time, id:o.id})); // 앞으로 잡힌 우리 라이브(plans)도 포함
+  const cutoff = (()=>{ const d = new Date(); d.setDate(d.getDate()-90); return localDateStr(d); })(); // 지난 라이브는 최근 90일만
+  brandFiles.forEach(({n, d})=>{
+    const br = d.brand || n;
+    (Array.isArray(d['회차'])?d['회차']:[]).forEach(o=>{ const dt = String(o.start||'').slice(0,10); if(dt && dt>=cutoff) items.push({date:dt, brand:br, start:String(o.start||'').slice(11,16), id:o.id, content:String(o['행사내용']||'').trim()}); });
+    (Array.isArray(d['예정'])?d['예정']:[]).forEach(o=>{ if(o && o.date) items.push({date:o.date, brand:br, start:o.time||'', id:o.id||'', content:String(o['행사']||'').trim(), planned:true}); });
+  });
   // _plans.json: {브랜드:[{date,time,id,쇼호스트,행사}]} — 아직 라이브ID가 없는 예정 일정(11월 등)
   if(plans && typeof plans==='object') Object.keys(plans).forEach(br=>{ (Array.isArray(plans[br])?plans[br]:[]).forEach(o=>{ if(o && o.date) items.push({date:o.date, brand:br, start:o.time||'', id:o.id||'', content:String(o['행사']||'').trim(), planned:true}); }); });
   {
@@ -10424,15 +10440,16 @@ async function syncLiveFromNas(manual){
       let row = live.schedule.find(x=>String(x.liveId||'').trim()===liveId);
       if(!row) row = live.schedule.find(x=>!String(x.liveId||'').trim() && x.date===date && x.brand===brand); // 직접 적어둔 같은 날·같은 브랜드 일정에 라이브ID를 붙여준다
       if(row){
-        const before = JSON.stringify([row.date,row.time,row.brand,row.liveId]);
+        const before = JSON.stringify([row.date,row.time,row.brand,row.liveId,row.content]);
         row.date = date; if(time) row.time = time; row.brand = brand; row.liveId = liveId;
-        if(before !== JSON.stringify([row.date,row.time,row.brand,row.liveId])){ touch(row); fixed++; }
+        if(o.content && !String(row.content||'').trim()) row.content = o.content; // 행사내용이 비어 있을 때만 채운다
+        if(before !== JSON.stringify([row.date,row.time,row.brand,row.liveId,row.content])){ touch(row); fixed++; }
         return;
       }
       const id = 'nas_'+liveId;
       if(del[id]) return; // 사용자가 지운 일정은 되살리지 않는다
       if(!promo.brands.includes(brand)) promo.brands.push(brand);
-      live.schedule.push(touch({id, importBatchId:'nas', date, time, liveId, brand, content:''}));
+      live.schedule.push(touch({id, importBatchId:'nas', date, time, liveId, brand, content:o.content||''}));
       added++;
     });
   }
