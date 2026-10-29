@@ -708,9 +708,7 @@ const NAV_GROUPS = [
     {sectionKey:'live_performance', label:'라이브 현황', color:'#7C4DFF'},
   ]},
   {key:'smartstore', type:'group', label:'스마트스토어', color:'#8B5CF6', children:[
-    {sectionKey:'smartstore_sales', label:'매출 대시보드', color:'#8B5CF6'},
-    {sectionKey:'weekly_meeting',   label:'주간미팅',     color:'#0EA5A5'},
-    {sectionKey:'smartstore_calc',  label:'매출계산기',   color:'#F0932B'},
+    {sectionKey:'self_promo', label:'자체기획전', color:'#8B5CF6'},
   ]},
 ];
 
@@ -1146,7 +1144,7 @@ function ensureSortIndexes(arr){
    서버에서 온 데이터는 "이미 삭제된 것"으로 보고 무시한다. */
 function ensureDeletedIds(){
   if(!state.deletedIds || typeof state.deletedIds!=='object') state.deletedIds = {};
-  ['proposals','selections','checklist','liveSchedule','fulfillmentItems'].forEach(k=>{
+  ['proposals','selections','checklist','liveSchedule','fulfillmentItems','selfPromos'].forEach(k=>{
     if(!state.deletedIds[k] || typeof state.deletedIds[k]!=='object') state.deletedIds[k] = {};
   });
   return state.deletedIds;
@@ -1307,6 +1305,7 @@ function handleRemoteStateUpdate(rawRemoteState){
       state.promotion.proposals = mergeProposals(state.promotion.proposals, serverPromo.proposals||[], mergedDeleted.proposals);
       state.promotion.selections = mergeById(state.promotion.selections, serverPromo.selections||[], mergedDeleted.selections);
       state.promotion.checklist = mergeById(state.promotion.checklist, serverPromo.checklist||[], mergedDeleted.checklist);
+      state.promotion.selfPromos = mergeById(state.promotion.selfPromos, serverPromo.selfPromos||[], mergedDeleted.selfPromos);
     }
     if(state.live) state.live.schedule = mergeById(state.live.schedule, serverLive.schedule||[], mergedDeleted.liveSchedule);
     if(state.fulfillment){ state.fulfillment.items = mergeById(state.fulfillment.items, serverFulfillment.items||[], mergedDeleted.fulfillmentItems); state.fulfillment.lastInbound = mergeLastInbound(state.fulfillment.lastInbound, serverFulfillment.lastInbound); }
@@ -1317,6 +1316,7 @@ function handleRemoteStateUpdate(rawRemoteState){
     const localProposals = (state.promotion && state.promotion.proposals) || [];
     const localSelections = (state.promotion && state.promotion.selections) || [];
     const localChecklist = (state.promotion && state.promotion.checklist) || [];
+    const localSelfPromos = (state.promotion && state.promotion.selfPromos) || [];
     const localLiveSchedule = (state.live && state.live.schedule) || [];
     const localFulfillItems = (state.fulfillment && state.fulfillment.items) || [];
     const localLastInbound = (state.fulfillment && state.fulfillment.lastInbound) || {};
@@ -1332,6 +1332,7 @@ function handleRemoteStateUpdate(rawRemoteState){
       state.promotion.proposals = mergeProposals(localProposals, state.promotion.proposals, mergedDeleted.proposals);
       state.promotion.selections = mergeById(localSelections, state.promotion.selections, mergedDeleted.selections);
       state.promotion.checklist = mergeById(localChecklist, state.promotion.checklist, mergedDeleted.checklist);
+      state.promotion.selfPromos = mergeById(localSelfPromos, state.promotion.selfPromos, mergedDeleted.selfPromos);
     }
     if(state.live) state.live.schedule = mergeById(localLiveSchedule, state.live.schedule, mergedDeleted.liveSchedule);
     if(state.fulfillment){ state.fulfillment.items = mergeById(localFulfillItems, state.fulfillment.items, mergedDeleted.fulfillmentItems); state.fulfillment.lastInbound = mergeLastInbound(localLastInbound, state.fulfillment.lastInbound); }
@@ -1524,11 +1525,11 @@ function ensureNavOrder(){
   NAV_GROUPS.forEach(g=>{ if(g.type==='group') defaultChildren[g.key] = g.children.map(c=>c.sectionKey); });
 
   if(!state.navOrder || typeof state.navOrder!=='object' || Array.isArray(state.navOrder)){
-    state.navOrder = {ver:3, top:defaultTop.slice(), children:JSON.parse(JSON.stringify(defaultChildren))};
+    state.navOrder = {ver:4, top:defaultTop.slice(), children:JSON.parse(JSON.stringify(defaultChildren))};
     return state.navOrder;
   }
-  if(state.navOrder.ver!==3){ // 메뉴 구성이 바뀐 버전 — 예전에 저장된 순서는 새 기본 순서로 한 번만 초기화
-    state.navOrder = {ver:3, top:defaultTop.slice(), children:JSON.parse(JSON.stringify(defaultChildren))};
+  if(state.navOrder.ver!==4){ // 메뉴 구성이 바뀐 버전 — 예전에 저장된 순서는 새 기본 순서로 한 번만 초기화
+    state.navOrder = {ver:4, top:defaultTop.slice(), children:JSON.parse(JSON.stringify(defaultChildren))};
     return state.navOrder;
   }
   if(!Array.isArray(state.navOrder.top) || state.navOrder.top.length!==defaultTop.length || !defaultTop.every(k=>state.navOrder.top.includes(k))){
@@ -1693,6 +1694,7 @@ function render(){
       case 'live_performance': main.innerHTML = renderLivePerformance(); break;
       case 'fulfillment_inbound_calc': main.innerHTML = renderFulfillmentInboundCalc(); break;
       case 'fulfillment_items': main.innerHTML = renderFulfillmentItems(); break;
+      case 'self_promo': main.innerHTML = renderSelfPromo(); break;
       case 'smartstore_sales': main.innerHTML = renderSmartstoreDashboard(); break;
       case 'weekly_meeting': main.innerHTML = renderWeeklyMeeting(); break;
       case 'smartstore_calc': main.innerHTML = renderSmartstoreCalc(); break;
@@ -4468,6 +4470,7 @@ function ensurePromotion(){
   if(!state.promotion.selectionFilter || typeof state.promotion.selectionFilter!=='object') state.promotion.selectionFilter = {};
   if(!state.promotion.checklistFilter || typeof state.promotion.checklistFilter!=='object') state.promotion.checklistFilter = {};
   if(!state.promotion.brandLinks || typeof state.promotion.brandLinks!=='object') state.promotion.brandLinks = {};
+  if(!Array.isArray(state.promotion.selfPromos)) state.promotion.selfPromos = []; // 스마트스토어 > 자체기획전
   if(state.promotion.sheetSyncUrl===undefined) state.promotion.sheetSyncUrl = '';
   if(state.promotion.proposeCalendarId===undefined) state.promotion.proposeCalendarId = '';
   if(state.promotion.selectedCalendarId===undefined) state.promotion.selectedCalendarId = '';
@@ -7932,6 +7935,7 @@ function renderLiveBrandFilterBar(brands){
 
 /* ---- 라이브 일정 ---- */
 /* 라이브 일정은 최신(가장 늦은 날짜)이 위로 오게 보여준다. 날짜를 아직 안 적은 새 줄은 맨 위. */
+let liveScheduleShowAll = false;
 function liveScheduleSorted(list){
   return list.slice().sort((a,b)=> String(b.date||'9999-99-99').localeCompare(String(a.date||'9999-99-99')) || String(b.time||'').localeCompare(String(a.time||'')));
 }
@@ -8560,7 +8564,12 @@ function deleteSelectedLiveSchedules(){
 function renderLiveSchedule(){
   const promo = ensurePromotion();
   const live = ensureLive();
-  const visibleIds = live.schedule.map(s=>s.id);
+  // 화면이 느려지지 않게 기본은 최근 30일 + 앞으로의 일정만 그린다 (오래된 일정은 버튼으로 펼치기)
+  const sortedAll = liveScheduleSorted(live.schedule);
+  const cutoff = (()=>{ const d = new Date(); d.setDate(d.getDate()-30); return localDateStr(d); })();
+  const shownList = liveScheduleShowAll ? sortedAll : sortedAll.filter(s=>!s.date || s.date>=cutoff);
+  const hiddenCount = sortedAll.length - shownList.length;
+  const visibleIds = shownList.map(s=>s.id);
   const allChecked = visibleIds.length>0 && visibleIds.every(id=>selectedLiveScheduleIds.has(id));
   const checkedCount = visibleIds.filter(id=>selectedLiveScheduleIds.has(id)).length;
   return `
@@ -8588,7 +8597,7 @@ function renderLiveSchedule(){
           </tr>
         </thead>
         <tbody>
-          ${live.schedule.length===0 ? `<tr><td colspan="9"><div class="empty">등록된 라이브 일정이 없습니다. 오른쪽 위 버튼으로 추가해보세요.</div></td></tr>` : liveScheduleSorted(live.schedule).map((s,idx)=>{
+          ${live.schedule.length===0 ? `<tr><td colspan="9"><div class="empty">등록된 라이브 일정이 없습니다. 오른쪽 위 버튼으로 추가해보세요.</div></td></tr>` : shownList.map((s,idx)=>{
             const brandOptions = promoOptionSet(promo.brands, s.brand);
             const rowClass = (idx%2===1 ? 'row-alt' : '') + (liveScheduleEnded(s) ? ' live-ended' : '');
             return `
@@ -8612,6 +8621,7 @@ function renderLiveSchedule(){
         </tbody>
       </table>
     </div>
+    ${(hiddenCount>0 || liveScheduleShowAll) ? `<div style="text-align:center;margin:10px 0"><button class="btn ghost" style="color:var(--text-primary)" onclick="liveScheduleShowAll=!liveScheduleShowAll;render()">${liveScheduleShowAll ? '▲ 지난 일정 접기' : `▼ 30일 이전 지난 일정 ${hiddenCount}건 보기`}</button></div>` : ''}
     <div class="helptext">라이브ID는 숫자만 최대 8자리까지 입력돼요 (콤마·하이픈 등은 자동으로 걸러집니다). 브랜드 목록은 프로모션 카테고리의 "관리"에서 함께 관리해요.</div>
   `;
 }
@@ -8703,6 +8713,214 @@ function renderLiveCalendar(){
         <tbody>${weekRows}</tbody>
       </table>
     </div>
+  `;
+}
+
+/* =========================================================================
+   스마트스토어 > 자체기획전 — 달력으로 보고, 일정을 추가하면 선정리스트·셋팅에 같은 내용이 자동으로 만들어진다
+   (promo.selfPromos: {id, brand, startDate, endDate, promoName, topic, products:[{id,code,name,regPrice,instantDiscountPrice,finalBenefitPrice}]})
+   ========================================================================= */
+let selfCalView = null;
+function ensureSelfCalView(){ if(!selfCalView){ const t=new Date(); selfCalView={y:t.getFullYear(), m:t.getMonth()+1}; } return selfCalView; }
+function selfCalPrev(){ const v=ensureSelfCalView(); v.m--; if(v.m<1){v.m=12; v.y--;} render(); }
+function selfCalNext(){ const v=ensureSelfCalView(); v.m++; if(v.m>12){v.m=1; v.y++;} render(); }
+function selfCalToday(){ selfCalView=null; render(); }
+
+let selfPromoModal = null; // {id|null, draft}
+function newSelfProduct(){ return {id:uid(), code:'', name:'', regPrice:'', instantDiscountPrice:'', finalBenefitPrice:''}; }
+function openSelfPromoModal(id, presetDate){
+  const promo = ensurePromotion();
+  const sp = id ? promo.selfPromos.find(x=>x.id===id) : null;
+  selfPromoModal = {id: sp?sp.id:null, draft: sp
+    ? JSON.parse(JSON.stringify(sp))
+    : {brand:'', startDate:presetDate||'', endDate:presetDate||'', promoName:'', topic:'', products:[newSelfProduct()]}};
+  if(!Array.isArray(selfPromoModal.draft.products) || !selfPromoModal.draft.products.length) selfPromoModal.draft.products = [newSelfProduct()];
+  render();
+}
+function closeSelfPromoModal(){ selfPromoModal = null; render(); }
+function updateSelfDraft(field, value){ if(selfPromoModal) selfPromoModal.draft[field] = value; }
+function updateSelfProduct(idx, field, value){
+  if(!selfPromoModal) return;
+  const pr = selfPromoModal.draft.products[idx]; if(!pr) return;
+  pr[field] = ['regPrice','instantDiscountPrice','finalBenefitPrice'].includes(field) ? sanitizePromoNumber(value) : value;
+}
+function addSelfProduct(){ if(!selfPromoModal) return; selfPromoModal.draft.products.push(newSelfProduct()); render(); }
+function removeSelfProduct(idx){ if(!selfPromoModal) return; selfPromoModal.draft.products.splice(idx,1); if(!selfPromoModal.draft.products.length) selfPromoModal.draft.products.push(newSelfProduct()); render(); }
+/* 엑셀에서 여러 줄을 복사해서 품목 표의 아무 칸에나 붙여넣으면, 그 칸부터 표 모양 그대로 채워진다 (줄이 모자라면 자동으로 늘어남) */
+const SELF_PRODUCT_FIELDS = ['code','name','regPrice','instantDiscountPrice','finalBenefitPrice'];
+function handleSelfTablePaste(e, row, col){
+  if(!selfPromoModal) return;
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  if(!/[\t\n]/.test(text.replace(/\r?\n$/,''))) return; // 한 칸짜리 붙여넣기는 평소대로
+  e.preventDefault();
+  const lines = text.replace(/\r/g,'').replace(/\n+$/,'').split('\n').map(l=>l.split('\t'));
+  const list = selfPromoModal.draft.products;
+  lines.forEach((cells, ri)=>{
+    while(list.length <= row+ri) list.push(newSelfProduct());
+    cells.forEach((v, ci)=>{
+      const f = SELF_PRODUCT_FIELDS[col+ci]; if(!f) return;
+      v = String(v).replace(/^"|"$/g,'').trim();
+      list[row+ri][f] = (f==='code'||f==='name') ? v : sanitizePromoNumber(v);
+    });
+  });
+  render();
+}
+/* 자체기획전 → 선정리스트(상품) + 셋팅(체크리스트) 동기화. 선정·셋팅 항목은 selfPromoId로 연결해서, 고칠 때마다 같은 항목을 갱신한다 */
+function syncSelfPromoLinks(sp, isNew){
+  const promo = ensurePromotion();
+  const prods = (sp.products||[]).filter(p=>p.code||p.name||p.regPrice||p.instantDiscountPrice||p.finalBenefitPrice).map(p=>Object.assign({}, p));
+  let sel = promo.selections.find(x=>x.sourceSelfPromoId===sp.id);
+  if(!sel){
+    sel = touch({id:uid(), startDate:'', endDate:'', promoName:'', exposureSlot:'', exposureDate:'', brand:'', products:[], sourceSelfPromoId:sp.id, checklistSynced:true, sortIndex: nextSortIndex(promo.selections)});
+    promo.selections.unshift(sel);
+  }
+  sel.startDate = sp.startDate||''; sel.endDate = sp.endDate||''; sel.promoName = sp.promoName||''; sel.brand = sp.brand||'';
+  sel.products = prods.length ? prods : [newSelfProduct()];
+  touch(sel);
+  let ck = promo.checklist.find(x=>x.sourceSelfPromoId===sp.id);
+  if(!ck && isNew){
+    ck = newChecklistEntry({sourceSelfPromoId:sp.id, sourceSelectionId:sel.id, sortIndex: nextSortIndex(promo.checklist)});
+    promo.checklist.unshift(ck);
+  }
+  if(ck){ ck.promoName = sp.promoName||''; ck.brand = sp.brand||''; ck.startDate = sp.startDate||''; ck.endDate = sp.endDate||''; touch(ck); }
+}
+function saveSelfPromo(){
+  if(!selfPromoModal) return;
+  const d = selfPromoModal.draft;
+  if(!d.brand){ alert('브랜드를 선택해주세요.'); return; }
+  if(!d.startDate){ alert('시작일을 입력해주세요.'); return; }
+  if(d.endDate && d.endDate < d.startDate){ alert('종료일이 시작일보다 빠를 수 없어요.'); return; }
+  if(!String(d.promoName||'').trim()){ alert('프로모션명을 입력해주세요.'); return; }
+  const promo = ensurePromotion();
+  let sp = selfPromoModal.id ? promo.selfPromos.find(x=>x.id===selfPromoModal.id) : null;
+  const isNew = !sp;
+  if(!sp){ sp = {id:uid(), sortIndex: nextSortIndex(promo.selfPromos)}; promo.selfPromos.unshift(sp); }
+  sp.brand = d.brand; sp.startDate = d.startDate; sp.endDate = d.endDate || d.startDate; sp.promoName = String(d.promoName).trim(); sp.topic = String(d.topic||'').trim();
+  sp.products = d.products.filter(p=>p.code||p.name||p.regPrice||p.instantDiscountPrice||p.finalBenefitPrice).map(p=>Object.assign({}, p));
+  if(!sp.products.length) sp.products = [newSelfProduct()];
+  touch(sp);
+  syncSelfPromoLinks(sp, isNew);
+  selfPromoModal = null;
+  saveState(); render();
+}
+function deleteSelfPromo(){
+  if(!selfPromoModal || !selfPromoModal.id) return;
+  if(!confirm('이 자체기획전을 삭제할까요?\n선정리스트와 셋팅에 같이 만들어진 항목도 함께 삭제돼요.')) return;
+  const promo = ensurePromotion(); const id = selfPromoModal.id;
+  promo.selfPromos = promo.selfPromos.filter(x=>x.id!==id); recordDeleted('selfPromos', id);
+  promo.selections.filter(x=>x.sourceSelfPromoId===id).forEach(x=>recordDeleted('selections', x.id));
+  promo.selections = promo.selections.filter(x=>x.sourceSelfPromoId!==id);
+  promo.checklist.filter(x=>x.sourceSelfPromoId===id).forEach(x=>recordDeleted('checklist', x.id));
+  promo.checklist = promo.checklist.filter(x=>x.sourceSelfPromoId!==id);
+  selfPromoModal = null;
+  saveState(); render();
+}
+function renderSelfPromoModal(){
+  if(!selfPromoModal) return '';
+  const promo = ensurePromotion(); const d = selfPromoModal.draft; const esc = dashEsc;
+  return `
+    <div class="modal-overlay" onclick="closeSelfPromoModal()">
+      <div class="modal-panel" onclick="event.stopPropagation()" style="max-width:860px">
+        <button class="modal-close" onclick="closeSelfPromoModal()" title="닫기">✕</button>
+        <div class="modal-title">${selfPromoModal.id ? '✏️ 자체기획전 수정' : '📝 자체기획전 일정 추가'}</div>
+        <div class="modal-sub">저장하면 선정리스트(상품)와 셋팅(프로모션명·브랜드·기간)에도 같은 내용이 자동으로 들어가요.</div>
+        <div class="proposal-add-form">
+          <div class="field"><label>브랜드명</label>
+            <select class="row-input ssc-left" onchange="updateSelfDraft('brand', this.value)">
+              <option value="">선택</option>
+              ${promoOptionSet(promo.brands, d.brand).map(b=>`<option value="${esc(b)}" ${b===d.brand?'selected':''}>${esc(b)}</option>`).join('')}
+            </select></div>
+          <div class="field"><label>프로모션명</label>
+            <input type="text" class="row-input ssc-left" placeholder="프로모션명" value="${esc(d.promoName)}" onchange="updateSelfDraft('promoName', this.value)"></div>
+          <div class="field"><label>시작일</label>
+            <input type="date" class="row-input ssc-left" value="${d.startDate||''}" onchange="updateSelfDraft('startDate', this.value)"></div>
+          <div class="field"><label>종료일</label>
+            <input type="date" class="row-input ssc-left" value="${d.endDate||''}" onchange="updateSelfDraft('endDate', this.value)"></div>
+          <div class="field" style="grid-column:1/-1"><label>주제</label>
+            <input type="text" class="row-input ssc-left" placeholder="기획전 주제" value="${esc(d.topic)}" onchange="updateSelfDraft('topic', this.value)"></div>
+        </div>
+
+        <div style="margin-top:16px;font-weight:700;font-size:13px">품목 리스트</div>
+        <div style="overflow-x:auto;margin-top:6px">
+          <table class="sheet-table" style="min-width:720px">
+            <thead><tr><th style="width:110px">상품코드</th><th>상품명</th><th style="width:100px">등록가</th><th style="width:100px">즉시할인가</th><th style="width:100px">최종혜택가</th><th style="width:32px"></th></tr></thead>
+            <tbody>
+              ${d.products.map((p,i)=>`<tr>
+                <td><input class="sheet-input" type="text" value="${esc(p.code)}" onchange="updateSelfProduct(${i},'code',this.value)" onpaste="handleSelfTablePaste(event,${i},0)"></td>
+                <td><input class="sheet-input" type="text" style="text-align:left" value="${esc(p.name)}" onchange="updateSelfProduct(${i},'name',this.value)" onpaste="handleSelfTablePaste(event,${i},1)"></td>
+                <td><input class="sheet-input mono" type="text" inputmode="numeric" value="${esc(p.regPrice)}" onchange="updateSelfProduct(${i},'regPrice',this.value)" onpaste="handleSelfTablePaste(event,${i},2)"></td>
+                <td><input class="sheet-input mono" type="text" inputmode="numeric" value="${esc(p.instantDiscountPrice)}" onchange="updateSelfProduct(${i},'instantDiscountPrice',this.value)" onpaste="handleSelfTablePaste(event,${i},3)"></td>
+                <td><input class="sheet-input mono" type="text" inputmode="numeric" value="${esc(p.finalBenefitPrice)}" onchange="updateSelfProduct(${i},'finalBenefitPrice',this.value)" onpaste="handleSelfTablePaste(event,${i},4)"></td>
+                <td><button class="btn-del" onclick="removeSelfProduct(${i})" title="삭제">✕</button></td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn ghost" style="color:var(--text-primary)" onclick="addSelfProduct()">+ 품목 추가</button>
+          <span class="helptext" style="margin:0;align-self:center">💡 엑셀에서 상품코드~최종혜택가 5칸을 여러 줄 복사해서, 표의 첫 칸을 누르고 붙여넣기(Ctrl+V)하면 한 번에 들어가요</span>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:18px">
+          <button class="btn" style="flex:1" onclick="saveSelfPromo()">✅ 저장</button>
+          ${selfPromoModal.id ? `<button class="btn ghost" style="color:var(--negative)" onclick="deleteSelfPromo()">🗑 삭제</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+function renderSelfPromo(){
+  const promo = ensurePromotion();
+  const view = ensureSelfCalView(); const y = view.y, m = view.m;
+  const pad2 = n => String(n).padStart(2,'0');
+  const firstWeekday = new Date(y, m-1, 1).getDay(), daysInMonth = new Date(y, m, 0).getDate();
+  const cells = []; for(let i=0;i<firstWeekday;i++) cells.push(null); for(let d=1; d<=daysInMonth; d++) cells.push(d); while(cells.length%7!==0) cells.push(null);
+  const filterKey = 'selfPromoFilter'; const today = todayStr();
+  const list = promo.selfPromos.filter(x=>!x.brand || isBrandVisibleIn(filterKey, x.brand));
+  const eventsOn = ds => list.filter(x=>x.startDate && x.startDate<=ds && ds<=(x.endDate||x.startDate));
+  const esc = dashEsc;
+  let weekRows = '';
+  for(let w=0; w<cells.length/7; w++){
+    weekRows += '<tr>';
+    for(let c=0; c<7; c++){
+      const day = cells[w*7+c];
+      if(day===null){ weekRows += `<td class="promo-cal-cell empty-cell"></td>`; continue; }
+      const ds = `${y}-${pad2(m)}-${pad2(day)}`; const wd = new Date(y,m-1,day).getDay();
+      weekRows += `<td class="promo-cal-cell ${ds===today?'is-today':''}" ondblclick="openSelfPromoModal(null,'${ds}')" title="더블클릭하면 이 날짜로 일정 추가">
+        <div class="promo-cal-daynum ${wd===0?'sun':''} ${wd===6?'sat':''}">${day}</div>
+        <div class="promo-cal-events">
+          ${eventsOn(ds).map(ev=>{
+            const col = promoBrandColor(ev.brand||'');
+            const first = ev.startDate===ds;
+            return `<div class="promo-cal-chip" style="background:${col}22;color:${col};cursor:pointer" onclick="event.stopPropagation();openSelfPromoModal('${ev.id}')" title="${esc(ev.brand)} · ${esc(ev.promoName)}${ev.topic?' · '+esc(ev.topic):''} (${ev.startDate}~${ev.endDate||ev.startDate})">
+              <span class="promo-cal-chip-dot" style="background:${col}"></span>${esc(ev.brand||'(브랜드 미정)')} ${first?esc(ev.promoName):'…'}</div>`;
+          }).join('')}
+        </div></td>`;
+    }
+    weekRows += '</tr>';
+  }
+  return `
+    <div class="page-header">
+      <div>
+        <span class="eyebrow" style="background:#8B5CF622;color:#8B5CF6">스마트스토어</span>
+        <h1>자체기획전</h1>
+        <div class="sub">일정을 추가하면 선정리스트(품목)와 셋팅에도 같은 내용이 자동으로 만들어져요 · 일정을 누르면 수정, 빈 날짜를 더블클릭하면 그 날짜로 추가</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn ghost" onclick="selfCalPrev()" style="color:var(--text-primary)">◀</button>
+        <div style="font-weight:800;font-size:15px;min-width:96px;text-align:center">${y}년 ${m}월</div>
+        <button class="btn ghost" onclick="selfCalNext()" style="color:var(--text-primary)">▶</button>
+        <button class="btn ghost" onclick="selfCalToday()" style="color:var(--text-primary)">오늘</button>
+        <button class="btn" onclick="openSelfPromoModal(null)">+ 일정 추가</button>
+      </div>
+    </div>
+    ${renderBrandFilterBar(filterKey, brandsInUseFor(promo.selfPromos))}
+    <div class="card">
+      <table class="promo-cal-table">
+        <thead><tr>${PROMO_WEEKDAY_KR.map((wn,i)=>`<th class="${i===0?'sun':''} ${i===6?'sat':''}">${wn}</th>`).join('')}</tr></thead>
+        <tbody>${weekRows}</tbody>
+      </table>
+    </div>
+    ${renderSelfPromoModal()}
   `;
 }
 
