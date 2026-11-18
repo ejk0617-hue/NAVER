@@ -4110,6 +4110,96 @@ async function downloadCjAllZip(){
     render();
   }catch(e){ alert('엑셀을 만들지 못했어요.\n\n'+e.message); }
 }
+/* =========================================================================
+   입고 일정 문의 메시지 (카톡) — 입고량 계산에서 "확정"한 품목을 브랜드별로 모아 붙여넣기용 문구를 만든다
+   ========================================================================= */
+const INBOUND_MSG_ROUTES = { // 브랜드 → 상차지 / 입고처 (입고처 뒤에 "입고 일정 문의드립니다"가 붙는다)
+  'VSL3':{pickup:'채우다', dest:'CJ 풀필먼트 안성 저온센터'},
+  'VSL':{pickup:'채우다', dest:'CJ 풀필먼트 안성 저온센터'},
+  '갸스비':{pickup:'채우다', dest:'CJ 풀필먼트 군포센터'},
+  '리틀타익스':{pickup:'채우다', dest:'CJ 풀필먼트 군포센터'},
+  '로버츠베리에':{pickup:'채우다', dest:'롯데 풀필먼트 군포센터'},
+  '그란츠':{pickup:'채우다', dest:'롯데 풀필먼트 군포센터'},
+  '자이스':{pickup:'채우다', dest:'롯데 풀필먼트 군포센터'},
+  '로트벡쉔':{pickup:'로트벡쉔', dest:'품고'},
+  '라움':{pickup:'혜성', dest:'롯데 풀필먼트 군포센터'},
+  '라움365':{pickup:'혜성', dest:'롯데 풀필먼트 군포센터'},
+  '원더비':{pickup:'혜성', dest:'롯데 풀필먼트 군포센터'},
+  '후':{pickup:'본사', dest:'롯데 풀필먼트 군포센터'},
+};
+function inboundRouteOf(brand){
+  const f = ensureFulfillment();
+  const custom = (f.msgRoutes && f.msgRoutes[brand]) || {};
+  const def = INBOUND_MSG_ROUTES[brand] || {pickup:'', dest:''};
+  return {pickup: custom.pickup!==undefined ? custom.pickup : def.pickup, dest: custom.dest!==undefined ? custom.dest : def.dest};
+}
+function setInboundRoute(brand, field, value){
+  const f = ensureFulfillment();
+  if(!f.msgRoutes || typeof f.msgRoutes!=='object') f.msgRoutes = {};
+  f.msgRoutes[brand] = Object.assign({}, f.msgRoutes[brand]||{}, {[field]: String(value).trim()});
+  saveState(); render();
+}
+function setInboundMsgEa(on){ ensureFulfillment().msgIncludeEa = !!on; saveState(); render(); }
+function fmtMsgNum(n){ n = Math.round(Number(n)*100)/100; return n.toLocaleString('ko-KR'); }
+function inboundMessageGroups(){
+  const f = ensureFulfillment(); const map = {}; const order = [];
+  f.items.forEach(it=>{
+    if(!it.inbConfirm || it.active===false || !it.brand) return;
+    if(!map[it.brand]){ map[it.brand] = []; order.push(it.brand); }
+    map[it.brand].push(it);
+  });
+  return order.map(b=>({brand:b, items:map[b]}));
+}
+function buildInboundMessage(brand, items){
+  const f = ensureFulfillment(); const r = inboundRouteOf(brand);
+  const totalBox = items.reduce((a,it)=>a+(Number(it.inbConfirm.box)||0),0);
+  const head = (r.pickup||'(상차지)') + ' 상차 > ' + (r.dest||'(입고처)') + ' 입고 일정 문의드립니다.';
+  const lines = items.map(it=>{
+    const name = it.itemName || it.itemCode || '-';
+    return f.msgIncludeEa ? `${name} / ${fmtMsgNum(it.inbConfirm.box)}박스 / ${fmtMsgNum(it.inbConfirm.ea)}EA` : `${name} / ${fmtMsgNum(it.inbConfirm.box)}박스`;
+  });
+  return ['안녕하세요', head, '', `브랜드 : ${brand}`, `수량 : ${items.length}SKU / ${fmtMsgNum(totalBox)}BOX`, '', '[상세]', ...lines].join('\n');
+}
+async function copyInboundMsg(brand, btn){
+  const g = inboundMessageGroups().find(x=>x.brand===brand); if(!g) return;
+  const text = buildInboundMessage(brand, g.items);
+  let ok = false;
+  try{ await navigator.clipboard.writeText(text); ok = true; }catch(e){}
+  if(!ok){ // 클립보드 권한이 없을 때를 대비한 예전 방식
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select();
+    try{ ok = document.execCommand('copy'); }catch(e){} ta.remove();
+  }
+  if(btn){ const old = btn.textContent; btn.textContent = ok ? '✔ 복사됨' : '복사 실패 — 직접 선택해서 복사하세요'; setTimeout(()=>{ btn.textContent = old; }, 1600); }
+}
+function renderInboundMessagePanel(){
+  const f = ensureFulfillment(); const groups = inboundMessageGroups(); const esc = xmlEsc;
+  return `
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <h2 style="margin:0">💬 입고 일정 문의 메시지 <span style="font-size:12px;font-weight:600;color:var(--text-secondary)">· 확정한 품목이 브랜드별로 자동 생성돼요 (카톡에 바로 붙여넣기)</span></h2>
+        <label style="font-size:12.5px;display:flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" ${f.msgIncludeEa?'checked':''} onchange="setInboundMsgEa(this.checked)" style="accent-color:var(--accent)"> 상세에 EA수도 넣기</label>
+      </div>
+      ${groups.length===0 ? `<div class="empty" style="margin-top:10px">위 표에서 입고수(BOX) 옆의 <b>확정</b>을 누르면 브랜드별 메시지가 여기에 생겨요.</div>` : groups.map(g=>{
+        const r = inboundRouteOf(g.brand); const text = buildInboundMessage(g.brand, g.items); const b = g.brand.replace(/'/g,"\\'");
+        const missing = !r.pickup || !r.dest;
+        return `
+        <div style="margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:#FAFAFB">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+            <b style="font-size:13.5px">${esc(g.brand)}</b>
+            <span style="font-size:11.5px;color:var(--text-secondary)">상차지</span>
+            <input class="row-input" style="width:110px" value="${esc(r.pickup)}" placeholder="예) 채우다" onchange="setInboundRoute('${b}','pickup',this.value)">
+            <span style="font-size:11.5px;color:var(--text-secondary)">입고처</span>
+            <input class="row-input" style="width:220px" value="${esc(r.dest)}" placeholder="예) 롯데 풀필먼트 군포센터" onchange="setInboundRoute('${b}','dest',this.value)">
+            ${missing ? `<span class="badge warn">상차지·입고처를 채워주세요</span>` : ''}
+            <span style="flex:1"></span>
+            <button class="btn" onclick="copyInboundMsg('${b}', this)">📋 복사</button>
+          </div>
+          <textarea readonly rows="${text.split('\n').length+1}" style="width:100%;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:inherit;font-size:13px;line-height:1.55;background:#fff;resize:vertical" onclick="this.select()">${esc(text)}</textarea>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
 function renderInboundConfirmPanel(){
   const f = ensureFulfillment();
   const {groups, other} = cjConfirmedGroups();
@@ -4293,6 +4383,8 @@ function renderFulfillmentInboundCalc(){
       </table>`}
       <div class="helptext">필요수량 = 평균출고량 × 기준일 − 현재고 → 이 값을 입수량으로 나눈 뒤 <b>0.5 이상은 올리고 0.5 미만은 내려서</b> 박스 수를 정하고, <b>입고수량(EA) = 박스 수 × 입수량</b>으로 계산해서 항상 박스 단위로 딱 맞아떨어져요. (필요수량이 0 이하면 입고수량도 0) · 입고수량 칸은 <b>직접 고칠 수 있어요</b>(노란 칸 = 수기 입력, 비우면 자동 계산). 고치면 입고수(BOX)는 입고수량 ÷ 입수량으로 바뀌어요. · 표는 <b>입고수량이 많은 순</b>으로 정렬되고, 입고가 필요 없는 품목은 맨 아래에 있어요.</div>
     </div>
+
+    ${renderInboundMessagePanel()}
 
     ${renderInboundConfirmPanel()}
 
