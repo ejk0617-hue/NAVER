@@ -742,6 +742,7 @@ const AD_BRAND_LISTS_DEFAULT = {
     {id:'오스템/자이스', account:'인트리_오스템와픽, 자이스'},
     {id:'리틀타익스', account:'웰빙프라자_리틀타익스'},
     {id:'클레보스', account:'웰빙프라자_클레보스'},
+    {id:'드롬팔스/원더비', account:'드롬팔스 · 성과형'},
   ],
   seosea: ['VSL3','갸스비','리플클래식','자이스','오스템와픽','하늘비행','드롬팔스','원더비','그란츠','라움','덴탈프로','후','코어루틴','로버츠베리에','로트벡쉔','게이트맨'],
   brgeom: [
@@ -10346,21 +10347,32 @@ const CHARGE_SYNC_GFA = {
   '오스템/자이스':{bal:['자이스 · 성과형','오스템와픽 · 성과형'], ids:[2402439,1705067]},
   '리틀타익스':{bal:['리틀타익스·마조렛 · 성과형'], ids:[2405316]},
   '클레보스':{bal:['클레보스 · 성과형'], ids:[2402029]},
+  '드롬팔스/원더비':{bal:['드롬팔스 · 성과형'], ids:[]},
 };
 /* 나스에는 있는데 앱 목록에 없던 계정 — 처음 한 번만 앱 목록에 추가해서 같이 연동한다(나중에 지워도 다시 안 생김) */
 const CHARGE_SYNC_EXTRAS = [
   {flag:'shogeom_로트벡쉔검색', list:'shogeom', item:{id:'로트벡쉔 · 검색', biz:'', brands:'로트벡쉔'}},
   {flag:'shogeom_게이트맨아사', list:'shogeom', item:{id:'게이트맨·아사아블로이 · 검색+성과형', biz:'', brands:'게이트맨, 아사아블로이'}},
   {flag:'gfa_로트벡쉔', list:'gfa', item:{id:'로트벡쉔', account:'로트벡쉔 · 성과형'}},
+  {flag:'gfa_드롬팔스원더비', list:'gfa', item:{id:'드롬팔스/원더비', account:'드롬팔스 · 성과형'}},
   {flag:'bizwallet_오스템', list:'bizwallet', item:'오스템'},
 ];
 const CHARGE_SYNC_ALIAS = { 'VSL3':'VSL#3', '오스템와픽':'오스템', '라움':'라움365', '네이쳐스패밀리':'네이처스패밀리' };
 const CHARGE_SYNC_HOLD = ['게이트맨','아사아블로이']; // 나스 페이지에서 충전 보류 처리된 스마트광고 → 잔액만 가져옴
-function chargeSyncNorm(x){ return String(x||'').replace(/[#\s]/g,'').replace(/쳐/g,'처'); }
+function chargeSyncNorm(x){ return String(x||'').replace(/[#\s]/g,'').replace(/쳐/g,'처').replace(/클레/g,'클래'); }
 function chargeSyncFindKey(obj, wanted){ // 이름 표기가 조금 달라도(#, 공백, 쳐/처) 같은 항목을 찾는다
   if(obj[wanted]!==undefined) return wanted;
   const w = chargeSyncNorm(wanted);
   return Object.keys(obj).find(k=>chargeSyncNorm(k)===w) || null;
+}
+function chargeSyncFuzzy(obj, name, kind){ // '·' 앞뒤 표기가 달라도(드롬팔스/원더비 등 묶음 이름 포함) 이름+종류가 들어있는 키를 찾는다
+  const n = chargeSyncNorm(name), kd = chargeSyncNorm(kind);
+  const ks = Object.keys(obj);
+  const hit = ks.find(k=>{ const x = chargeSyncNorm(k); return x.includes(n) && x.includes(kd); });
+  if(hit) return hit;
+  const pre = n.slice(0, Math.min(3, n.length)); // 앞 3글자만 같아도(예: 리플클…) 후보가 하나뿐이면 같은 계정으로 본다
+  const c = ks.filter(k=>{ const x = chargeSyncNorm(k); return x.includes(pre) && x.includes(kd); });
+  return c.length===1 ? c[0] : null;
 }
 function chargeSyncAvg3(series){
   if(!series) return null;
@@ -10406,22 +10418,26 @@ async function syncChargeFromServer(){
       } else if(r.adType==='gfa'){
         const m = CHARGE_SYNC_GFA[r.key];
         if(m){ balNames=m.bal; ids=m.ids; }
-        else { const k = chargeSyncFindKey(bal, r.key+' · 성과형'); if(k) balNames=[k]; }
+        else { const k = chargeSyncFindKey(bal, r.key+' · 성과형') || chargeSyncFuzzy(bal, r.key, '성과형'); if(k) balNames=[k]; }
       } else if(r.adType==='seosea'){
         const nm = CHARGE_SYNC_ALIAS[r.key] || r.key;
-        const k = chargeSyncFindKey(bal, nm+' · 스마트광고');
+        const k = chargeSyncFindKey(bal, nm+' · 스마트광고') || chargeSyncFuzzy(bal, nm, '스마트');
         if(k) balNames=[k];
-        const dk = chargeSyncFindKey(daily, 'smart_'+nm);
+        const dk = chargeSyncFindKey(daily, 'smart_'+nm) || Object.keys(daily).find(x=>chargeSyncNorm(x)===chargeSyncNorm('smart_'+nm));
         if(dk) ids=[dk];
         if(CHARGE_SYNC_HOLD.includes(r.key)) withBurn = false;
       } else if(r.adType==='bizwallet'){
         const nm = CHARGE_SYNC_ALIAS[r.key] || r.key;
-        const k = chargeSyncFindKey(bal, nm+' · 비즈월렛');
+        const k = chargeSyncFindKey(bal, nm+' · 비즈월렛') || chargeSyncFuzzy(bal, nm, '비즈');
         if(k) balNames=[k];
         withBurn = false; // 비즈월렛은 소진 개념이 없어 잔액만
       }
       const found = balNames.filter(n=>bal[n] && bal[n].amt!=null);
-      if(!found.length){ missing.push(r.adName+'/'+r.key); return; }
+      if(!found.length){
+        const nk = chargeSyncNorm(r.key).replace(/\/.*/,'');
+        const cand = Object.keys(bal).filter(k=>nk && chargeSyncNorm(k).includes(nk)).slice(0,3);
+        const hit = balNames.find(n=>bal[n]); const nul = hit && bal[hit].amt==null;
+        missing.push(r.adName+'/'+r.key + (nul ? ' [나스 잔액값 비어있음]' : cand.length ? ' [나스 이름: '+cand.join(' | ')+']' : ' [나스에 항목 없음]')); return; }
       const rid = chargePlanRowId(r);
       if(!p.rows[rid]) p.rows[rid] = {};
       p.rows[rid].balance = String(Math.max(0, Math.round(found.reduce((t,n)=>t+(Number(bal[n].amt)||0),0))));
